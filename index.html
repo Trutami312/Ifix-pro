@@ -11807,7 +11807,28 @@ ${tableHtml}
              const [pendingWAAfterPay, setPendingWAAfterPay] = useState(null);
              const [printingAsImage, setPrintingAsImage] = useState(false);
              const [sharingAsImage, setSharingAsImage] = useState(false);
-             
+
+             // ── Quick Complaints — editable per owner, disimpan di localStorage ──
+             const DEFAULT_QUICK_COMPLAINTS = [
+                 'LCD Mati','Layar Retak / Pecah','Touchscreen Tidak Berfungsi',
+                 'Baterai Cepat Habis','Tidak Bisa Charge','Kamera Rusak / Buram',
+                 'Speaker Tidak Bunyi','Mic Tidak Berfungsi','WiFi / Sinyal Bermasalah',
+                 'Mati Total','Hang / Restart Sendiri','Tombol Power Rusak',
+                 'Tombol Volume Rusak','Water Damage / Kena Air','Slot SIM Rusak','Lainnya'
+             ];
+             const [quickComplaints, setQuickComplaints] = useState(DEFAULT_QUICK_COMPLAINTS);
+             useEffect(() => {
+                 if (!activeOwner?.id) return;
+                 try {
+                     const saved = localStorage.getItem(`qc_complaints_${activeOwner.id}`);
+                     setQuickComplaints(saved ? JSON.parse(saved) : DEFAULT_QUICK_COMPLAINTS);
+                 } catch { setQuickComplaints(DEFAULT_QUICK_COMPLAINTS); }
+             }, [activeOwner?.id]);
+             const saveQuickComplaints = (list) => {
+                 try { localStorage.setItem(`qc_complaints_${activeOwner?.id}`, JSON.stringify(list)); } catch {}
+                 setQuickComplaints(list);
+             };
+
              // Subscribe langsung ke dokumen Firestore agar logo & alamat selalu fresh
              useEffect(() => {
                  if (!activeStore?.id) { setStore(activeStore); return; }
@@ -13030,7 +13051,7 @@ ${tableHtml}
                          </div>
                      )}
                      
-                     {modal && <ServiceForm initial={modal} close={()=>setModal(null)} save={saveService} allServices={services} qcItemsProp={allQCItems} kelengkapanItemsProp={allKelengkapanItems} />}
+                     {modal && <ServiceForm initial={modal} close={()=>setModal(null)} save={saveService} allServices={services} qcItemsProp={allQCItems} kelengkapanItemsProp={allKelengkapanItems} quickComplaintsProp={quickComplaints} onSaveQuickComplaints={saveQuickComplaints} />}
                      {addPartModal && <AddPartModal service={addPartModal} close={()=>setAddPartModal(null)} />}
                      {payModal && <PaymentModal service={payModal} close={()=>{ setPayModal(null); if(pendingWAAfterPay){ setWaTrackingModal(pendingWAAfterPay); setPendingWAAfterPay(null); } }} pay={handlePay} />}
                      {waTrackingModal && (() => {
@@ -13376,7 +13397,7 @@ ${tableHtml}
             );
         };
 
-        const ServiceForm = ({ initial, close, save, allServices = [], qcItemsProp = [], kelengkapanItemsProp = [] }) => {
+        const ServiceForm = ({ initial, close, save, allServices = [], qcItemsProp = [], kelengkapanItemsProp = [], quickComplaintsProp = [], onSaveQuickComplaints = null }) => {
             // Helper: fetch QC items langsung dari PocketBase SDK (bypass adapter layer)
             // Gabungkan owner-specific QC items + master QC items
             const loadQCItemsDirect = async (ownerId) => {
@@ -13499,14 +13520,28 @@ ${tableHtml}
             const [showKelengkapan, setShowKelengkapan] = useState(false);
             const [complaintInput, setComplaintInput] = useState('');
             const [showQuickComplaints, setShowQuickComplaints] = useState(false);
-            const QUICK_COMPLAINTS = [
-                'LCD Mati','Layar Retak / Pecah','Touchscreen Tidak Berfungsi',
-                'Baterai Cepat Habis','Tidak Bisa Charge','Kamera Rusak / Buram',
-                'Speaker Tidak Bunyi','Mic Tidak Berfungsi','WiFi / Sinyal Bermasalah',
-                'Mati Total','Hang / Restart Sendiri','Tombol Power Rusak',
-                'Tombol Volume Rusak','Water Damage / Kena Air','Slot SIM Rusak',
-                'Lainnya'
-            ];
+            const [editingQC, setEditingQC] = useState(false);
+            const [newQCInput, setNewQCInput] = useState('');
+            const DEFAULT_QC = ['LCD Mati','Layar Retak / Pecah','Touchscreen Tidak Berfungsi','Baterai Cepat Habis','Tidak Bisa Charge','Kamera Rusak / Buram','Speaker Tidak Bunyi','Mic Tidak Berfungsi','WiFi / Sinyal Bermasalah','Mati Total','Hang / Restart Sendiri','Tombol Power Rusak','Tombol Volume Rusak','Water Damage / Kena Air','Slot SIM Rusak','Lainnya'];
+            const [localQC, setLocalQC] = useState(quickComplaintsProp.length > 0 ? quickComplaintsProp : DEFAULT_QC);
+            const QUICK_COMPLAINTS = localQC;
+            const addQCItem = () => {
+                const t = newQCInput.trim();
+                if (!t || localQC.includes(t)) return;
+                const updated = [...localQC, t];
+                setLocalQC(updated);
+                onSaveQuickComplaints?.(updated);
+                setNewQCInput('');
+            };
+            const removeQCItem = (item) => {
+                const updated = localQC.filter(q => q !== item);
+                setLocalQC(updated);
+                onSaveQuickComplaints?.(updated);
+            };
+            const resetQCToDefault = () => {
+                setLocalQC(DEFAULT_QC);
+                onSaveQuickComplaints?.(DEFAULT_QC);
+            };
             const addComplaintTag = (tag) => {
                 const t = tag.trim();
                 if (!t) return;
@@ -13890,21 +13925,55 @@ ${tableHtml}
                                         </div>
                                         {/* Quick select dropdown */}
                                         {showQuickComplaints && (
-                                            <div className="absolute top-full left-0 right-0 bg-white border border-orange-200 rounded-b-lg shadow-xl z-30 p-2">
-                                                <p className="text-[10px] font-bold text-orange-600 uppercase mb-2 px-1">Pilih keluhan umum:</p>
-                                                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-                                                    {QUICK_COMPLAINTS.map((qc,i) => {
-                                                        const already = (form.complaintTags||[]).includes(qc);
-                                                        return (
-                                                            <button key={i} type="button"
-                                                                onClick={() => { addComplaintTag(qc); setShowQuickComplaints(false); }}
-                                                                className={`text-xs px-2 py-1 rounded-full border font-medium transition-all ${already ? 'bg-red-100 text-red-500 border-red-200 opacity-50 cursor-not-allowed' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
-                                                                disabled={already}
-                                                            >{qc}</button>
-                                                        );
-                                                    })}
-                                                </div>
-                                                <button type="button" onClick={() => setShowQuickComplaints(false)} className="mt-2 w-full text-[10px] text-slate-500 hover:text-slate-700 py-1">Tutup ✕</button>
+                                            <div className="absolute top-full left-0 right-0 bg-white border border-orange-200 rounded-b-lg shadow-xl z-30 p-2" style={{minWidth:'260px'}}>
+                                                {!editingQC ? (
+                                                    <>
+                                                        <div className="flex items-center justify-between mb-2 px-1">
+                                                            <p className="text-[10px] font-bold text-orange-600 uppercase">Pilih keluhan umum:</p>
+                                                            <button type="button" onClick={() => setEditingQC(true)} className="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-0.5">✏️ Edit</button>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto">
+                                                            {QUICK_COMPLAINTS.map((qc,i) => {
+                                                                const already = (form.complaintTags||[]).includes(qc);
+                                                                return (
+                                                                    <button key={i} type="button"
+                                                                        onClick={() => { addComplaintTag(qc); setShowQuickComplaints(false); }}
+                                                                        className={`text-xs px-2 py-1 rounded-full border font-medium transition-all ${already ? 'bg-red-100 text-red-500 border-red-200 opacity-50 cursor-not-allowed' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
+                                                                        disabled={already}
+                                                                    >{qc}</button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                        <button type="button" onClick={() => setShowQuickComplaints(false)} className="mt-2 w-full text-[10px] text-slate-500 hover:text-slate-700 py-1">Tutup ✕</button>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <p className="text-[10px] font-bold text-blue-600 uppercase">✏️ Kelola Keluhan Cepat</p>
+                                                            <button type="button" onClick={() => setEditingQC(false)} className="text-[10px] text-slate-500 hover:text-slate-700 font-bold">← Kembali</button>
+                                                        </div>
+                                                        <div className="flex gap-1 mb-2">
+                                                            <input
+                                                                type="text"
+                                                                value={newQCInput}
+                                                                onChange={e => setNewQCInput(e.target.value)}
+                                                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addQCItem(); } }}
+                                                                placeholder="Tambah keluhan baru..."
+                                                                className="flex-1 border border-blue-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500"
+                                                            />
+                                                            <button type="button" onClick={addQCItem} className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold hover:bg-blue-700"><Plus className="w-3 h-3"/></button>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto mb-2">
+                                                            {localQC.map((qc,i) => (
+                                                                <span key={i} className="inline-flex items-center gap-1 text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full border border-slate-200">
+                                                                    {qc}
+                                                                    <button type="button" onClick={() => removeQCItem(qc)} className="text-red-400 hover:text-red-600 ml-0.5"><X className="w-3 h-3"/></button>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                        <button type="button" onClick={resetQCToDefault} className="w-full text-[10px] text-slate-400 hover:text-slate-600 py-1 border-t border-slate-100">↩ Reset ke bawaan</button>
+                                                    </>
+                                                )}
                                             </div>
                                         )}
                                     </div>
