@@ -3137,6 +3137,117 @@
         };
 
         // ==========================================
+        // ─────────────────────────────────────────────────────────────────
+        // 🖱️  useDraggableModals — global drag handler untuk semua popup
+        //     Bekerja via event delegation: tidak perlu ubah modal satu per satu.
+        //     Cara kerja:
+        //       1. onMouseDown: cari modal panel (anak langsung dari overlay fixed inset-0)
+        //       2. Jika klik berada di zona header (<=70px dari atas panel) dan bukan tombol/input → aktifkan drag
+        //       3. onMouseMove: geser panel via style.left + style.top
+        //       4. onMouseUp/Leave: hentikan drag
+        // ─────────────────────────────────────────────────────────────────
+        const useDraggableModals = () => {
+            useEffect(() => {
+                let dragging = null;
+                let ox = 0, oy = 0;  // offset kursor dari pojok kiri-atas panel
+
+                const getModalPanel = (el) => {
+                    let node = el;
+                    while (node && node !== document.body) {
+                        const parent = node.parentElement;
+                        if (!parent) break;
+                        if (parent.classList.contains('inset-0') && parent.classList.contains('fixed')) {
+                            return node; // ini panel modal
+                        }
+                        node = parent;
+                    }
+                    return null;
+                };
+
+                const startDrag = (clientX, clientY, target) => {
+                    // Jangan drag jika klik pada elemen interaktif
+                    if (target.closest('button,input,select,textarea,a,[role="button"],[tabindex]')) return;
+                    const panel = getModalPanel(target);
+                    if (!panel) return;
+                    const rect = panel.getBoundingClientRect();
+                    const relY = clientY - rect.top;
+                    if (relY > 70) return; // hanya drag di zona header (70px teratas)
+                    dragging = panel;
+                    ox = clientX - rect.left;
+                    oy = clientY - rect.top;
+                    // Lepas dari flex-centering parent → posisi fixed absolut
+                    panel.style.position = 'fixed';
+                    panel.style.left = rect.left + 'px';
+                    panel.style.top = rect.top + 'px';
+                    panel.style.transform = 'none';
+                    panel.style.margin = '0';
+                    panel.style.transition = 'none';
+                    panel.style.cursor = 'grabbing';
+                    document.body.style.userSelect = 'none';
+                };
+
+                const moveDrag = (clientX, clientY) => {
+                    if (!dragging) return;
+                    const maxX = window.innerWidth  - dragging.offsetWidth;
+                    const maxY = window.innerHeight - dragging.offsetHeight;
+                    dragging.style.left = Math.max(0, Math.min(clientX - ox, maxX)) + 'px';
+                    dragging.style.top  = Math.max(0, Math.min(clientY - oy, maxY)) + 'px';
+                };
+
+                const stopDrag = () => {
+                    if (dragging) {
+                        dragging.style.cursor = '';
+                        dragging = null;
+                    }
+                    document.body.style.userSelect = '';
+                };
+
+                const onMouseDown = (e) => startDrag(e.clientX, e.clientY, e.target);
+                const onMouseMove = (e) => moveDrag(e.clientX, e.clientY);
+                const onTouchStart = (e) => {
+                    const t = e.touches[0];
+                    startDrag(t.clientX, t.clientY, e.target);
+                };
+                const onTouchMove = (e) => {
+                    if (!dragging) return;
+                    e.preventDefault();
+                    const t = e.touches[0];
+                    moveDrag(t.clientX, t.clientY);
+                };
+
+                document.addEventListener('mousedown', onMouseDown);
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', stopDrag);
+                document.addEventListener('touchstart', onTouchStart, { passive: true });
+                document.addEventListener('touchmove', onTouchMove, { passive: false });
+                document.addEventListener('touchend', stopDrag);
+
+                // Tambah kursor grab otomatis ke header semua modal
+                const styleTag = document.createElement('style');
+                styleTag.id = 'draggable-modal-style';
+                styleTag.textContent = `
+                    .fixed.inset-0 > * { cursor: default; }
+                    .fixed.inset-0 > * > *:first-child { cursor: grab; user-select: none; }
+                    .fixed.inset-0 > * > *:first-child:active { cursor: grabbing; }
+                    .fixed.inset-0 > * > *:first-child button,
+                    .fixed.inset-0 > * > *:first-child input,
+                    .fixed.inset-0 > * > *:first-child select { cursor: auto; }
+                `;
+                if (!document.getElementById('draggable-modal-style')) {
+                    document.head.appendChild(styleTag);
+                }
+
+                return () => {
+                    document.removeEventListener('mousedown', onMouseDown);
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', stopDrag);
+                    document.removeEventListener('touchstart', onTouchStart);
+                    document.removeEventListener('touchmove', onTouchMove);
+                    document.removeEventListener('touchend', stopDrag);
+                };
+            }, []);
+        };
+
         // 🔁 BACKWARD COMPATIBLE: useFirestoreCollection
         // Auto-selects mode based on COLLECTION_DATA_MODE config
         // Signature preserved: (collectionName, ownerId, storeId)
@@ -28800,6 +28911,9 @@ Cara merespons:
         const App = () => {
             const { user, activeOwner, activeStore, loading, logout, subscriptionStatus, adminWhatsApp, subConfig, ownerAccess } = useContext(SessionContext);
             
+            // 🖱️ Aktifkan drag untuk semua modal popup
+            useDraggableModals();
+
             // ✅ Restore last visited page after reload
             const VALID_VIEWS = ['dashboard','service','sales','purchase','return-sales','return-purchase',
                                  'inventory','customers','supplier','finance','transactions','cash',
