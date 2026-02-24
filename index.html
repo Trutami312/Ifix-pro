@@ -13406,8 +13406,8 @@ ${tableHtml}
             // Tidak perlu client-side filtering lagi
             const filteredInventory = inventory;
             
-            // QC & Kelengkapan items — akan di-fetch langsung dari PocketBase saat mount
-            const [kelengkapanItems, setKelengkapanItems] = useState([]);
+            // QC & Kelengkapan items — init dari props (ServiceManager), lalu preload langsung dari PocketBase
+            const [kelengkapanItems, setKelengkapanItems] = useState(kelengkapanItemsProp.length > 0 ? kelengkapanItemsProp : []);
             const [qcLoadingState, setQcLoadingState] = useState('idle'); // 'idle'|'loading'|'done'
             const [kelLoadingState, setKelLoadingState] = useState('idle');
             const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
@@ -13528,15 +13528,18 @@ ${tableHtml}
                 }
             };
 
-            // QC items state
-            const [qcItems, setQCItems] = useState([]);
+            // QC items state — init dari props sebagai fallback instan
+            const [qcItems, setQCItems] = useState(qcItemsProp.length > 0 ? qcItemsProp : []);
 
-            // Pre-load saat mount — langsung fetch dari PocketBase SDK
+            // Pre-load saat mount — langsung fetch dari PocketBase SDK (owner + master merged)
+            // Selalu fetch ulang karena props mungkin belum include master items
             useEffect(() => {
                 const oid = initial?.ownerId;
                 if (!oid) { console.warn('ServiceForm: no ownerId, skip preload'); return; }
                 let cancelled = false;
                 console.log('🚀 ServiceForm mount: preloading QC & Kelengkapan for ownerId=', oid);
+                setQcLoadingState('loading');
+                setKelLoadingState('loading');
                 (async () => {
                     try {
                         const [qc, kel] = await Promise.all([
@@ -13544,11 +13547,16 @@ ${tableHtml}
                             loadKelengkapanItemsDirect(oid)
                         ]);
                         if (cancelled) return;
+                        // Selalu update state — hasil fetch sudah merged (owner + master)
                         setQCItems(qc);
                         setKelengkapanItems(kel);
+                        setQcLoadingState('done');
+                        setKelLoadingState('done');
                         console.log('✅ ServiceForm preloaded QC:', qc.length, 'Kelengkapan:', kel.length);
                     } catch (err) {
                         console.error('❌ ServiceForm preload error:', err);
+                        setQcLoadingState('done');
+                        setKelLoadingState('done');
                     }
                 })();
                 return () => { cancelled = true; };
