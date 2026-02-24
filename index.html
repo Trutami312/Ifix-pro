@@ -8648,7 +8648,21 @@ const DeveloperDashboard = () => {
                                                             'bg-orange-100 text-orange-700'
                                                         }`}>{s.status}</span>
                                                     </div>
-                                                    <p className="text-sm text-slate-700 bg-white/60 p-2 rounded mb-3">🔧 {s.problem || s.complaint}</p>
+                                                    <div className="bg-white/60 p-2 rounded mb-2">
+                                                        {Array.isArray(s.complaintTags) && s.complaintTags.length > 0 ? (
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {s.complaintTags.map((t,i) => <span key={i} className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-medium">{t}</span>)}
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-sm text-slate-700">🔧 {s.problem || s.complaint || '-'}</p>
+                                                        )}
+                                                    </div>
+                                                    {s.unlockMethod && s.unlockMethod !== 'Tidak Ada' && (
+                                                        <div className="flex items-center gap-2 mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1">
+                                                            <Lock className="w-3 h-3 text-yellow-600 shrink-0"/>
+                                                            <span className="text-xs font-bold text-yellow-700">{s.unlockMethod}{s.unlockCode ? ': ' + s.unlockCode : ''}</span>
+                                                        </div>
+                                                    )}
                                                     
                                                     {/* Sparepart Info */}
                                                     {(s.usedParts && s.usedParts.length > 0) && (
@@ -8734,7 +8748,21 @@ const DeveloperDashboard = () => {
                                                             'bg-purple-100 text-purple-700'
                                                         }`}>{s.status}</span>
                                                     </div>
-                                                    <p className="text-sm text-slate-700 bg-white/60 p-2 rounded mb-3">🔧 {s.problem || s.complaint}</p>
+                                                    <div className="bg-white/60 p-2 rounded mb-2">
+                                                        {Array.isArray(s.complaintTags) && s.complaintTags.length > 0 ? (
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {s.complaintTags.map((t,i) => <span key={i} className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-medium">{t}</span>)}
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-sm text-slate-700">🔧 {s.problem || s.complaint || '-'}</p>
+                                                        )}
+                                                    </div>
+                                                    {s.unlockMethod && s.unlockMethod !== 'Tidak Ada' && (
+                                                        <div className="flex items-center gap-2 mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1">
+                                                            <Lock className="w-3 h-3 text-yellow-600 shrink-0"/>
+                                                            <span className="text-xs font-bold text-yellow-700">{s.unlockMethod}{s.unlockCode ? ': ' + s.unlockCode : ''}</span>
+                                                        </div>
+                                                    )}
                                                     
                                                     {/* Sparepart Info */}
                                                     {(s.usedParts && s.usedParts.length > 0) && (
@@ -13302,6 +13330,9 @@ ${tableHtml}
             const defaultForm = { 
                 customerName:'', phone:'', unitType:'', address:'', imei:'', complaint:'', serviceFee:0, dp:0, 
                 status:'Diterima', paymentMethod:'Cash', warranty:'', usedParts:[], paymentStatus:'Belum Lunas',
+                complaintTags: [],
+                unlockMethod: 'Tidak Ada',
+                unlockCode: '',
                 qcFunctional: {
                     microphone: false, speaker_bawah: false, touchscreen: false, proximity: false,
                     volume: false, silent: false, bluetooth: false, nfc: false, speaker_atas: false,
@@ -13323,13 +13354,20 @@ ${tableHtml}
                     // Edit mode - MAP PocketBase field names TO form field names
                     // PocketBase: customerPhone, deviceModel, problem, deviceSN, warrantyDays
                     // Form: phone, unitType, complaint, imei, warranty
+                    const baseComplaint = initial.problem || initial.complaint || '';
+                    const existingTags = Array.isArray(initial.complaintTags) && initial.complaintTags.length > 0
+                        ? initial.complaintTags
+                        : (baseComplaint ? baseComplaint.split(/[,;\n]+/).map(s=>s.trim()).filter(Boolean) : []);
                     const normalized = {
                         ...initial,
                         phone: initial.customerPhone || initial.phone || '',
                         unitType: initial.deviceModel || initial.unitType || initial.device || initial.deviceType || '',
-                        complaint: initial.problem || initial.complaint || '',
+                        complaint: baseComplaint,
                         imei: initial.deviceSN || initial.imei || '',
-                        warranty: String(initial.warrantyDays || initial.warranty || '')
+                        warranty: String(initial.warrantyDays || initial.warranty || ''),
+                        complaintTags: existingTags,
+                        unlockMethod: initial.unlockMethod || 'Tidak Ada',
+                        unlockCode: initial.unlockCode || '',
                     };
                     return normalized;
                 } else if (initial.customerName) {
@@ -13343,6 +13381,28 @@ ${tableHtml}
             const [showParts, setShowParts] = useState(!!(form.usedParts && form.usedParts.length > 0));
             const [showQC, setShowQC] = useState(false);
             const [showKelengkapan, setShowKelengkapan] = useState(false);
+            const [complaintInput, setComplaintInput] = useState('');
+            const [showQuickComplaints, setShowQuickComplaints] = useState(false);
+            const QUICK_COMPLAINTS = [
+                'LCD Mati','Layar Retak / Pecah','Touchscreen Tidak Berfungsi',
+                'Baterai Cepat Habis','Tidak Bisa Charge','Kamera Rusak / Buram',
+                'Speaker Tidak Bunyi','Mic Tidak Berfungsi','WiFi / Sinyal Bermasalah',
+                'Mati Total','Hang / Restart Sendiri','Tombol Power Rusak',
+                'Tombol Volume Rusak','Water Damage / Kena Air','Slot SIM Rusak',
+                'Lainnya'
+            ];
+            const addComplaintTag = (tag) => {
+                const t = tag.trim();
+                if (!t) return;
+                if ((form.complaintTags||[]).includes(t)) return;
+                const newTags = [...(form.complaintTags||[]), t];
+                setForm({...form, complaintTags: newTags, complaint: newTags.join(', ')});
+                setComplaintInput('');
+            };
+            const removeComplaintTag = (tag) => {
+                const newTags = (form.complaintTags||[]).filter(t => t !== tag);
+                setForm({...form, complaintTags: newTags, complaint: newTags.join(', ')});
+            };
             const [partMode, setPartMode] = useState('stock');
             const [selectedCategory, setSelectedCategory] = useState('');
             const [selectedSubCategory, setSelectedSubCategory] = useState('');
@@ -13684,11 +13744,55 @@ ${tableHtml}
                                 </div>
                             </div>
 
-                            {/* Baris 2: Keluhan, Status & Address */}
+                            {/* Baris 2: Keluhan multi-tag + Status */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="md:col-span-2">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Keluhan / Kerusakan</label>
-                                    <input className="w-full border-b-2 border-slate-200 bg-slate-50/50 p-2 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none transition-colors rounded-t-md" value={form.complaint} onChange={e=>setForm({...form, complaint:e.target.value})} placeholder="Deskripsi kerusakan..."/>
+                                    {/* Tags display */}
+                                    {(form.complaintTags||[]).length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5 mb-2">
+                                            {(form.complaintTags||[]).map((tag,i) => (
+                                                <span key={i} className="inline-flex items-center gap-1 bg-red-100 text-red-700 border border-red-200 text-xs font-bold px-2 py-1 rounded-full">
+                                                    {tag}
+                                                    <button type="button" onClick={() => removeComplaintTag(tag)} className="hover:text-red-900 ml-0.5"><X className="w-3 h-3"/></button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {/* Input + quick select */}
+                                    <div className="relative">
+                                        <div className="flex gap-1">
+                                            <input
+                                                className="flex-1 border-b-2 border-slate-200 bg-slate-50/50 p-2 text-sm font-medium text-slate-700 focus:border-red-400 focus:outline-none transition-colors rounded-t-md"
+                                                value={complaintInput}
+                                                onChange={e => setComplaintInput(e.target.value)}
+                                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addComplaintTag(complaintInput); } }}
+                                                placeholder="Ketik keluhan lalu Enter..."
+                                            />
+                                            <button type="button" onClick={() => addComplaintTag(complaintInput)} className="px-2 bg-red-500 text-white rounded-t-md hover:bg-red-600 text-xs font-bold shrink-0"><Plus className="w-3.5 h-3.5"/></button>
+                                            <button type="button" onClick={() => setShowQuickComplaints(p=>!p)} className="px-2 bg-orange-500 text-white rounded-t-md hover:bg-orange-600 text-xs font-bold shrink-0" title="Pilih keluhan umum">⚡</button>
+                                        </div>
+                                        {/* Quick select dropdown */}
+                                        {showQuickComplaints && (
+                                            <div className="absolute top-full left-0 right-0 bg-white border border-orange-200 rounded-b-lg shadow-xl z-30 p-2">
+                                                <p className="text-[10px] font-bold text-orange-600 uppercase mb-2 px-1">Pilih keluhan umum:</p>
+                                                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                                                    {QUICK_COMPLAINTS.map((qc,i) => {
+                                                        const already = (form.complaintTags||[]).includes(qc);
+                                                        return (
+                                                            <button key={i} type="button"
+                                                                onClick={() => { addComplaintTag(qc); setShowQuickComplaints(false); }}
+                                                                className={`text-xs px-2 py-1 rounded-full border font-medium transition-all ${already ? 'bg-red-100 text-red-500 border-red-200 opacity-50 cursor-not-allowed' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
+                                                                disabled={already}
+                                                            >{qc}</button>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <button type="button" onClick={() => setShowQuickComplaints(false)} className="mt-2 w-full text-[10px] text-slate-500 hover:text-slate-700 py-1">Tutup ✕</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {(form.complaintTags||[]).length === 0 && <p className="text-[10px] text-slate-400 mt-1">Klik ⚡ untuk pilih keluhan umum, atau ketik manual lalu Enter</p>}
                                 </div>
                                 <div className="md:col-span-1">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Status Saat Ini</label>
@@ -13706,6 +13810,32 @@ ${tableHtml}
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">IMEI / Serial Number</label>
                                     <input className="w-full border-b-2 border-slate-200 bg-slate-50/50 p-2 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none transition-colors rounded-t-md" value={form.imei || ''} onChange={e=>setForm({...form, imei:e.target.value})} placeholder="IMEI atau Serial..."/>
                                 </div>
+                            </div>
+
+                            {/* Baris 4: Kunci / Pola HP */}
+                            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3">
+                                <p className="text-[10px] font-bold text-yellow-700 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Lock className="w-3 h-3"/>Cara Buka HP (untuk tes tanpa pelanggan)</p>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {['Tidak Ada','PIN','Pola','Password','Sidik Jari','Face ID'].map(m => (
+                                        <button key={m} type="button"
+                                            onClick={() => setForm({...form, unlockMethod: m, unlockCode: m === 'Tidak Ada' ? '' : form.unlockCode})}
+                                            className={`py-1.5 rounded-lg text-xs font-bold border transition-all ${form.unlockMethod === m ? 'bg-yellow-500 text-white border-yellow-500 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-yellow-300'}`}
+                                        >{m === 'Tidak Ada' ? '🔓 Tidak Ada' : m === 'PIN' ? '🔢 PIN' : m === 'Pola' ? '🔷 Pola' : m === 'Password' ? '🔤 Password' : m === 'Sidik Jari' ? '👆 Sidik Jari' : '👤 Face ID'}</button>
+                                    ))}
+                                </div>
+                                {form.unlockMethod !== 'Tidak Ada' && form.unlockMethod !== 'Sidik Jari' && form.unlockMethod !== 'Face ID' && (
+                                    <div className="mt-2">
+                                        <input
+                                            className="w-full border border-yellow-300 bg-white p-2 rounded-lg text-sm font-bold text-slate-700 focus:border-yellow-500 focus:outline-none"
+                                            value={form.unlockCode || ''}
+                                            onChange={e => setForm({...form, unlockCode: e.target.value})}
+                                            placeholder={form.unlockMethod === 'PIN' ? 'Masukkan PIN...' : form.unlockMethod === 'Pola' ? 'Deskripsi pola (misal: L / Z / angka)...' : 'Masukkan password...'}
+                                        />
+                                    </div>
+                                )}
+                                {(form.unlockMethod === 'Sidik Jari' || form.unlockMethod === 'Face ID') && (
+                                    <p className="text-[10px] text-yellow-600 mt-2 font-medium">💡 HP dibuka dengan {form.unlockMethod} — minta pelanggan aktifkan teknisi sementara jika diperlukan</p>
+                                )}
                             </div>
 
                             {/* QC Functional Check Section */}
