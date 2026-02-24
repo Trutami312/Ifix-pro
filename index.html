@@ -1148,7 +1148,12 @@
                 } catch (err) {
                     console.error(`❌ onSnapshot fetch error [${q.collectionName}]:`, err.message, err.status, err);
                     if (!cancelled && errorCallback) errorCallback(err);
-                    else if (!cancelled) console.error(`⚠️ No errorCallback for [${q.collectionName}], error was swallowed!`);
+                    else if (!cancelled) {
+                        // 🔧 FIX: Panggil callback dengan empty snapshot agar nested listeners tetap terbentuk
+                        // (misal: jika master_qc_functional_items tidak ada di PocketBase, owner items tetap muncul)
+                        console.warn(`⚠️ onSnapshot error [${q.collectionName}] → returning empty snapshot. Error: ${err.message}`);
+                        callback(new PBQuerySnapshot([], q.collectionName));
+                    }
                 }
             };
 
@@ -5224,7 +5229,11 @@ const QCFunctionalItemsModal = ({ close, ownerId }) => {
             await addDoc(collection(db, APP_COLLECTION_PREFIX, 'public', 'qc_functional_items'), {
                 name: newItem, ownerId, createdAt: serverTimestamp()
             });
+            // 🔧 FIX: Langsung tambah ke state (optimistic update) agar list langsung refresh
+            setItems(prev => [...prev, { id: 'temp_' + Date.now(), name: newItem, ownerId }]);
             setNewItem('');
+        } catch (e) {
+            alert('❌ Gagal menyimpan item: ' + e.message);
         } finally { setLoading(false); }
     };
 
@@ -5257,14 +5266,17 @@ const QCFunctionalItemsModal = ({ close, ownerId }) => {
 };
 
 const MasterKelengkapanModal = ({ close }) => {
-    const [items, setItems] = useState([]);
+    const [activeTab, setActiveTab] = useState('kelengkapan'); // 'kelengkapan' | 'qc'
+    const [kelItems, setKelItems] = useState([]);
+    const [qcItems, setQCItems] = useState([]);
     const [newItem, setNewItem] = useState('');
     const [loading, setLoading] = useState(false);
 
+    // Load master kelengkapan items
     useEffect(() => {
         const unsub = onSnapshot(
             query(collection(db, APP_COLLECTION_PREFIX, 'public', 'master_kelengkapan_items'), orderBy('createdAt', 'desc')),
-            (snap) => setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+            (snap) => setKelItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))
         );
         if (window.firestoreListeners) window.firestoreListeners.add(unsub);
         return () => {
@@ -5273,43 +5285,86 @@ const MasterKelengkapanModal = ({ close }) => {
         };
     }, []);
 
+    // Load master QC items
+    useEffect(() => {
+        const loadQC = async () => {
+            try {
+                const result = await pb.collection('master_qc_functional_items').getList(1, 500, {});
+                setQCItems(result.items.map(r => ({ id: r.id, name: r.name, created: r.created })));
+            } catch (e) {
+                console.warn('⚠️ master_qc_functional_items not found, will auto-create on first add');
+                setQCItems([]);
+            }
+        };
+        loadQC();
+    }, []);
+
+    const currentItems = activeTab === 'kelengkapan' ? kelItems : qcItems;
+    const collectionName = activeTab === 'kelengkapan' ? 'master_kelengkapan_items' : 'master_qc_functional_items';
+
     const addItem = async () => {
         if (!newItem.trim()) return;
         setLoading(true);
         try {
-            await addDoc(collection(db, APP_COLLECTION_PREFIX, 'public', 'master_kelengkapan_items'), {
-                name: newItem, createdAt: serverTimestamp()
-            });
+            if (activeTab === 'kelengkapan') {
+                await addDoc(collection(db, APP_COLLECTION_PREFIX, 'public', 'master_kelengkapan_items'), {
+                    name: newItem, createdAt: serverTimestamp()
+                });
+            } else {
+                // For master QC, use PB SDK directly (collection might not exist in adapter)
+                await pb.collection('master_qc_functional_items').create({
+                    name: newItem, createdAt: new Date().toISOString()
+                });
+                // Optimistic update
+                setQCItems(prev => [{ id: 'temp_' + Date.now(), name: newItem }, ...prev]);
+            }
             setNewItem('');
+        } catch (e) {
+            alert('❌ Gagal menyimpan: ' + e.message);
         } finally { setLoading(false); }
     };
 
     const deleteItem = async (id) => {
-        try { await deleteDoc(doc(db, APP_COLLECTION_PREFIX, 'public', 'master_kelengkapan_items', id)); } catch (e) { alert(e.message); }
+        try {
+            if (activeTab === 'kelengkapan') {
+                await deleteDoc(doc(db, APP_COLLECTION_PREFIX, 'public', 'master_kelengkapan_items', id));
+            } else {
+                await pb.collection('master_qc_functional_items').delete(id);
+                setQCItems(prev => prev.filter(i => i.id !== id));
+            }
+        } catch (e) { alert(e.message); }
     };
 
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
-                <h3 className="font-bold text-xl mb-2 text-slate-800">Master Data Kelengkapan</h3>
-                <p className="text-sm text-slate-600 mb-4">Kelola item kelengkapan default untuk semua owner</p>
+                <h3 className="font-bold text-xl mb-2 text-slate-800">Master Data</h3>
+                <p className="text-sm text-slate-600 mb-4">Kelola item QC & kelengkapan default untuk semua owner. Item ini akan otomatis muncul sebagai pilihan centang di form service.</p>
+                
+                {/* Tab Selector */}
+                <div className="flex gap-2 mb-4 border-b border-slate-200 pb-3">
+                    <button onClick={() => setActiveTab('kelengkapan')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'kelengkapan' ? 'bg-teal-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>📋 Kelengkapan</button>
+                    <button onClick={() => setActiveTab('qc')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'qc' ? 'bg-amber-500 text-white shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>✅ QC Fungsional</button>
+                </div>
+                
                 <div className="flex gap-2 mb-4">
-                    <input value={newItem} onChange={e => setNewItem(e.target.value)} placeholder="Tambah item..." className="flex-1 border border-slate-300 p-2 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-blue-500 bg-white"/>
-                    <button onClick={addItem} disabled={loading} className="bg-teal-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-teal-700"><Plus className="w-4 h-4"/></button>
+                    <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addItem(); }} placeholder={activeTab === 'kelengkapan' ? 'Tambah item kelengkapan...' : 'Tambah item QC...'} className="flex-1 border border-slate-300 p-2 rounded-lg text-sm text-slate-800 placeholder-slate-400 focus:outline-blue-500 bg-white"/>
+                    <button onClick={addItem} disabled={loading} className={`text-white px-4 py-2 rounded-lg font-bold ${activeTab === 'kelengkapan' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-amber-500 hover:bg-amber-600'}`}><Plus className="w-4 h-4"/></button>
                 </div>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {items.length === 0 ? (
-                        <p className="text-center text-slate-400 py-8">Belum ada item master</p>
+                    {currentItems.length === 0 ? (
+                        <p className="text-center text-slate-400 py-8">Belum ada item master {activeTab === 'kelengkapan' ? 'kelengkapan' : 'QC'}</p>
                     ) : (
-                        items.map(item => (
-                            <div key={item.id} className="flex justify-between items-center p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                        currentItems.map(item => (
+                            <div key={item.id} className={`flex justify-between items-center p-3 rounded-lg ${activeTab === 'kelengkapan' ? 'bg-teal-50 border border-teal-200' : 'bg-amber-50 border border-amber-200'}`}>
                                 <span className="font-medium text-slate-800">{item.name}</span>
                                 <button onClick={() => deleteItem(item.id)} className="text-red-600 hover:text-red-700"><Trash2 className="w-4 h-4"/></button>
                             </div>
                         ))
                     )}
                 </div>
-                <div className="mt-6 flex gap-3">
+                <p className="text-[10px] text-slate-400 mt-3 text-center">💡 Item master akan muncul otomatis di form service sebagai pilihan centang untuk semua owner</p>
+                <div className="mt-4 flex gap-3">
                     <button onClick={close} className="flex-1 py-2 border border-slate-300 rounded-lg font-bold text-slate-800 hover:bg-slate-50">Tutup</button>
                 </div>
             </div>
@@ -5351,7 +5406,11 @@ const KelengkapanItemsModal = ({ close, ownerId }) => {
             await addDoc(collection(db, APP_COLLECTION_PREFIX, 'public', 'kelengkapan_items'), {
                 name: newItem, ownerId, createdAt: serverTimestamp()
             });
+            // 🔧 FIX: Langsung tambah ke state (optimistic update) agar list langsung refresh
+            setItems(prev => [...prev, { id: 'temp_' + Date.now(), name: newItem, ownerId }]);
             setNewItem('');
+        } catch (e) {
+            alert('❌ Gagal menyimpan item: ' + e.message);
         } finally { setLoading(false); }
     };
 
@@ -11624,62 +11683,55 @@ ${tableHtml}
                  return () => unsub();
              }, [activeStore?.id]);
              
-             // Load all Kelengkapan and QC items for invoice display
+             // Load Kelengkapan dan QC items — langsung pakai PocketBase SDK (bypass adapter)
+             // Gabungkan owner-specific items + master items
              useEffect(() => {
                  if (!activeOwner?.id) return;
-                 
-                 // Load kelengkapan items
-                 const masterKelUnsub = onSnapshot(
-                     query(collection(db, APP_COLLECTION_PREFIX, 'public', 'master_kelengkapan_items')),
-                     (snap) => {
-                         const masterItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                         const ownerKelUnsub = onSnapshot(
-                             query(collection(db, APP_COLLECTION_PREFIX, 'public', 'kelengkapan_items'), where('ownerId', '==', activeOwner.id)),
-                             (snap) => {
-                                 const ownerItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                                 const allItems = [...masterItems, ...ownerItems];
-                                 const uniqueItems = Array.from(new Map(allItems.map(item => [item.name.toLowerCase(), item])).values());
-                                 setAllKelengkapanItems(uniqueItems);
-                             }
-                         );
-                         if (window.firestoreListeners) window.firestoreListeners.add(ownerKelUnsub);
-                         return () => {
-                             if (window.firestoreListeners) window.firestoreListeners.delete(ownerKelUnsub);
-                             ownerKelUnsub();
-                         };
+                 let cancelled = false;
+                 const loadItems = async () => {
+                     try {
+                         const oid = activeOwner.id;
+                         console.log('🔍 ServiceManager: loading QC & Kelengkapan for ownerId=', oid);
+                         
+                         // Fetch owner-specific items
+                         const [qcResult, kelResult] = await Promise.all([
+                             pb.collection('qc_functional_items').getList(1, 500, { filter: `ownerId="${oid}"` }),
+                             pb.collection('kelengkapan_items').getList(1, 500, { filter: `ownerId="${oid}"` })
+                         ]);
+                         
+                         // Fetch master items (global, tanpa ownerId)
+                         let masterQCItems = [];
+                         let masterKelItems = [];
+                         try {
+                             const masterQCResult = await pb.collection('master_qc_functional_items').getList(1, 500, {});
+                             masterQCItems = masterQCResult.items.map(r => ({ id: r.id, name: r.name, type: 'master' }));
+                         } catch (e) { console.warn('⚠️ master_qc_functional_items not found, skipping'); }
+                         try {
+                             const masterKelResult = await pb.collection('master_kelengkapan_items').getList(1, 500, {});
+                             masterKelItems = masterKelResult.items.map(r => ({ id: r.id, name: r.name, type: 'master' }));
+                         } catch (e) { console.warn('⚠️ master_kelengkapan_items not found, skipping'); }
+                         
+                         if (cancelled) return;
+                         
+                         // Merge: owner items + unique master items (by name)
+                         const ownerQC = qcResult.items.map(r => ({ id: r.id, name: r.name, ownerId: r.ownerId, type: 'owner' }));
+                         const ownerKel = kelResult.items.map(r => ({ id: r.id, name: r.name, ownerId: r.ownerId, type: 'owner' }));
+                         
+                         const qcNames = new Set(ownerQC.map(i => i.name.toLowerCase()));
+                         const kelNames = new Set(ownerKel.map(i => i.name.toLowerCase()));
+                         
+                         const uniqueMasterQC = masterQCItems.filter(m => !qcNames.has(m.name.toLowerCase()));
+                         const uniqueMasterKel = masterKelItems.filter(m => !kelNames.has(m.name.toLowerCase()));
+                         
+                         setAllQCItems([...uniqueMasterQC, ...ownerQC]);
+                         setAllKelengkapanItems([...uniqueMasterKel, ...ownerKel]);
+                         console.log('✅ ServiceManager loaded QC: owner=', ownerQC.length, 'master=', uniqueMasterQC.length, '| Kelengkapan: owner=', ownerKel.length, 'master=', uniqueMasterKel.length);
+                     } catch (err) {
+                         console.warn('⚠️ ServiceManager loadItems error:', err);
                      }
-                 );
-                 if (window.firestoreListeners) window.firestoreListeners.add(masterKelUnsub);
-                 
-                 // Load QC items
-                 const masterQCUnsub = onSnapshot(
-                     query(collection(db, APP_COLLECTION_PREFIX, 'public', 'master_qc_functional_items')),
-                     (snap) => {
-                         const masterItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                         const ownerQCUnsub = onSnapshot(
-                             query(collection(db, APP_COLLECTION_PREFIX, 'public', 'qc_functional_items'), where('ownerId', '==', activeOwner.id)),
-                             (snap) => {
-                                 const ownerItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                                 const allItems = [...masterItems, ...ownerItems];
-                                 const uniqueItems = Array.from(new Map(allItems.map(item => [item.name.toLowerCase(), item])).values());
-                                 setAllQCItems(uniqueItems);
-                             }
-                         );
-                         if (window.firestoreListeners) window.firestoreListeners.add(ownerQCUnsub);
-                         return () => {
-                             if (window.firestoreListeners) window.firestoreListeners.delete(ownerQCUnsub);
-                             ownerQCUnsub();
-                         };
-                     }
-                 );
-                 if (window.firestoreListeners) window.firestoreListeners.add(masterQCUnsub);
-                 
-                 return () => {
-                     if (window.firestoreListeners) window.firestoreListeners.delete(masterKelUnsub);
-                     if (window.firestoreListeners) window.firestoreListeners.delete(masterQCUnsub);
-                     masterKelUnsub();
-                     masterQCUnsub();
                  };
+                 loadItems();
+                 return () => { cancelled = true; };
              }, [activeOwner?.id]);
              
              // Auto-recalculate profit untuk service yang belum punya profit transactions
@@ -12834,7 +12886,7 @@ ${tableHtml}
                          </div>
                      )}
                      
-                     {modal && <ServiceForm initial={modal} close={()=>setModal(null)} save={saveService} allServices={services} />}
+                     {modal && <ServiceForm initial={modal} close={()=>setModal(null)} save={saveService} allServices={services} qcItemsProp={allQCItems} kelengkapanItemsProp={allKelengkapanItems} />}
                      {addPartModal && <AddPartModal service={addPartModal} close={()=>setAddPartModal(null)} />}
                      {payModal && <PaymentModal service={payModal} close={()=>{ setPayModal(null); if(pendingWAAfterPay){ setWaTrackingModal(pendingWAAfterPay); setPendingWAAfterPay(null); } }} pay={handlePay} />}
                      {waTrackingModal && (() => {
@@ -13180,7 +13232,72 @@ ${tableHtml}
             );
         };
 
-        const ServiceForm = ({ initial, close, save, allServices = [] }) => {
+        const ServiceForm = ({ initial, close, save, allServices = [], qcItemsProp = [], kelengkapanItemsProp = [] }) => {
+            // Helper: fetch QC items langsung dari PocketBase SDK (bypass adapter layer)
+            // Gabungkan owner-specific QC items + master QC items
+            const loadQCItemsDirect = async (ownerId) => {
+                if (!ownerId) { console.warn('loadQCItemsDirect: no ownerId'); return []; }
+                try {
+                    console.log('🔍 loadQCItemsDirect: fetching for ownerId=', ownerId);
+                    // Fetch owner-specific items
+                    const ownerResult = await pb.collection('qc_functional_items').getList(1, 500, {
+                        filter: `ownerId="${ownerId}"`
+                    });
+                    const ownerItems = ownerResult.items.map(r => ({ id: r.id, name: r.name, ownerId: r.ownerId, type: 'owner' }));
+                    
+                    // Fetch master QC items (global, tanpa ownerId)
+                    let masterItems = [];
+                    try {
+                        const masterResult = await pb.collection('master_qc_functional_items').getList(1, 500, {});
+                        masterItems = masterResult.items.map(r => ({ id: r.id, name: r.name, type: 'master' }));
+                    } catch (masterErr) {
+                        console.warn('⚠️ master_qc_functional_items collection not found or empty, skipping');
+                    }
+                    
+                    // Merge: master items first, then owner items (skip duplicates by name)
+                    const existingNames = new Set(ownerItems.map(i => i.name.toLowerCase()));
+                    const uniqueMasterItems = masterItems.filter(m => !existingNames.has(m.name.toLowerCase()));
+                    const combined = [...uniqueMasterItems, ...ownerItems];
+                    console.log('✅ loadQCItemsDirect: owner=', ownerItems.length, 'master=', uniqueMasterItems.length, 'total=', combined.length);
+                    return combined;
+                } catch (err) {
+                    console.error('❌ loadQCItemsDirect error:', err);
+                    return [];
+                }
+            };
+
+            // Helper: fetch Kelengkapan items langsung dari PocketBase SDK (bypass adapter layer)
+            // Gabungkan owner-specific kelengkapan items + master kelengkapan items
+            const loadKelengkapanItemsDirect = async (ownerId) => {
+                if (!ownerId) { console.warn('loadKelengkapanItemsDirect: no ownerId'); return []; }
+                try {
+                    console.log('🔍 loadKelengkapanItemsDirect: fetching for ownerId=', ownerId);
+                    // Fetch owner-specific items
+                    const ownerResult = await pb.collection('kelengkapan_items').getList(1, 500, {
+                        filter: `ownerId="${ownerId}"`
+                    });
+                    const ownerItems = ownerResult.items.map(r => ({ id: r.id, name: r.name, ownerId: r.ownerId, type: 'owner' }));
+                    
+                    // Fetch master kelengkapan items (global, tanpa ownerId)
+                    let masterItems = [];
+                    try {
+                        const masterResult = await pb.collection('master_kelengkapan_items').getList(1, 500, {});
+                        masterItems = masterResult.items.map(r => ({ id: r.id, name: r.name, type: 'master' }));
+                    } catch (masterErr) {
+                        console.warn('⚠️ master_kelengkapan_items collection not found or empty, skipping');
+                    }
+                    
+                    // Merge: master items first, then owner items (skip duplicates by name)
+                    const existingNames = new Set(ownerItems.map(i => i.name.toLowerCase()));
+                    const uniqueMasterItems = masterItems.filter(m => !existingNames.has(m.name.toLowerCase()));
+                    const combined = [...uniqueMasterItems, ...ownerItems];
+                    console.log('✅ loadKelengkapanItemsDirect: owner=', ownerItems.length, 'master=', uniqueMasterItems.length, 'total=', combined.length);
+                    return combined;
+                } catch (err) {
+                    console.error('❌ loadKelengkapanItemsDirect error:', err);
+                    return [];
+                }
+            };
             // Default form structure
             const defaultForm = { 
                 customerName:'', phone:'', unitType:'', address:'', imei:'', complaint:'', serviceFee:0, dp:0, 
@@ -13289,8 +13406,10 @@ ${tableHtml}
             // Tidak perlu client-side filtering lagi
             const filteredInventory = inventory;
             
-            // Master + Owner Kelengkapan Items (Dynamic)
+            // QC & Kelengkapan items — akan di-fetch langsung dari PocketBase saat mount
             const [kelengkapanItems, setKelengkapanItems] = useState([]);
+            const [qcLoadingState, setQcLoadingState] = useState('idle'); // 'idle'|'loading'|'done'
+            const [kelLoadingState, setKelLoadingState] = useState('idle');
             const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
             
             // Extract unique customers from allServices for dropdown
@@ -13409,101 +13528,31 @@ ${tableHtml}
                 }
             };
 
-            // Load Master + Owner Kelengkapan Items
-            useEffect(() => {
-                if (!initial.ownerId) return;
-                
-                // Real-time listener for Kelengkapan items
-                const masterUnsub = onSnapshot(
-                    query(collection(db, APP_COLLECTION_PREFIX, 'public', 'master_kelengkapan_items')),
-                    (masterSnap) => {
-                        const masterItems = masterSnap.docs.map(d => ({ id: d.id, ...d.data(), type: 'master' }));
-                        
-                        // Also listen for owner's custom items
-                        const ownerUnsub = onSnapshot(
-                            query(collection(db, APP_COLLECTION_PREFIX, 'public', 'kelengkapan_items'), where('ownerId', '==', initial.ownerId)),
-                            (ownerSnap) => {
-                                const ownerItems = ownerSnap.docs.map(d => ({ id: d.id, ...d.data(), type: 'owner' }));
-                                
-                                // Combine and deduplicate by name
-                                const allItems = [...masterItems, ...ownerItems];
-                                const uniqueItems = Array.from(new Map(allItems.map(item => [item.name.toLowerCase(), item])).values());
-                                setKelengkapanItems(uniqueItems);
-
-                                // Initialize form.kelengkapan state for each item
-                                const newKelengkapan = {};
-                                uniqueItems.forEach(item => {
-                                    const itemKey = item.name.toLowerCase().replace(/\s+/g, '_');
-                                    newKelengkapan[itemKey] = form.kelengkapan[itemKey] || false;
-                                });
-                                setForm(prev => ({ ...prev, kelengkapan: { ...prev.kelengkapan, ...newKelengkapan } }));
-                            }
-                        );
-                        if (window.firestoreListeners) window.firestoreListeners.add(ownerUnsub);
-                        
-                        return () => {
-                            if (window.firestoreListeners) window.firestoreListeners.delete(ownerUnsub);
-                            ownerUnsub();
-                        };
-                    }
-                );
-                if (window.firestoreListeners) window.firestoreListeners.add(masterUnsub);
-                
-                return () => {
-                    if (window.firestoreListeners) window.firestoreListeners.delete(masterUnsub);
-                    masterUnsub();
-                };
-            }, [initial.ownerId]);
-            
-            // Load Master + Owner QC Functional Items (Real-time)
+            // QC items state
             const [qcItems, setQCItems] = useState([]);
+
+            // Pre-load saat mount — langsung fetch dari PocketBase SDK
             useEffect(() => {
-                if (!initial.ownerId) {
-                    console.log('No ownerId, skipping QC items load');
-                    return;
-                }
-                
-                console.log('Loading QC items for ownerId:', initial.ownerId);
-                
-                // Real-time listener for Master QC items first
-                const masterUnsub = onSnapshot(
-                    query(collection(db, APP_COLLECTION_PREFIX, 'public', 'master_qc_functional_items')),
-                    (masterSnap) => {
-                        const masterItems = masterSnap.docs.map(d => ({ id: d.id, ...d.data(), type: 'master' }));
-                        
-                        // Also listen for owner's custom QC items
-                        const ownerUnsub = onSnapshot(
-                            query(collection(db, APP_COLLECTION_PREFIX, 'public', 'qc_functional_items'), 
-                                where('ownerId', '==', initial.ownerId)),
-                            (snap) => {
-                                const ownerItems = snap.docs.map(d => ({ id: d.id, ...d.data(), type: 'owner' }));
-                                
-                                // Combine and deduplicate by name
-                                const allItems = [...masterItems, ...ownerItems];
-                                const uniqueItems = Array.from(new Map(allItems.map(item => [item.name.toLowerCase(), item])).values());
-                                
-                                console.log('QC items loaded:', uniqueItems);
-                                setQCItems(uniqueItems);
-                                
-                                // Update form.qcFunctional with all items
-                                const newQC = {};
-                                uniqueItems.forEach(item => {
-                                    const itemKey = item.name.toLowerCase().replace(/\s+/g, '_');
-                                    newQC[itemKey] = form.qcFunctional[itemKey] || false;
-                                });
-                                setForm(prev => ({ ...prev, qcFunctional: { ...prev.qcFunctional, ...newQC } }));
-                            },
-                            (error) => {
-                                console.error('Error loading QC items:', error);
-                            }
-                        );
-                        
-                        return () => ownerUnsub();
+                const oid = initial?.ownerId;
+                if (!oid) { console.warn('ServiceForm: no ownerId, skip preload'); return; }
+                let cancelled = false;
+                console.log('🚀 ServiceForm mount: preloading QC & Kelengkapan for ownerId=', oid);
+                (async () => {
+                    try {
+                        const [qc, kel] = await Promise.all([
+                            loadQCItemsDirect(oid),
+                            loadKelengkapanItemsDirect(oid)
+                        ]);
+                        if (cancelled) return;
+                        setQCItems(qc);
+                        setKelengkapanItems(kel);
+                        console.log('✅ ServiceForm preloaded QC:', qc.length, 'Kelengkapan:', kel.length);
+                    } catch (err) {
+                        console.error('❌ ServiceForm preload error:', err);
                     }
-                );
-                
-                return () => masterUnsub();
-            }, [initial.ownerId]);
+                })();
+                return () => { cancelled = true; };
+            }, [initial?.ownerId]);
 
             return (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-fade-in">
@@ -13653,12 +13702,20 @@ ${tableHtml}
 
                             {/* QC Functional Check Section */}
                             <div>
-                                <button type="button" onClick={() => setShowQC(!showQC)} className={`w-full py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 border border-dashed transition-all mb-2 ${showQC ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-amber-50 text-amber-600 border-amber-300'}`}>{showQC ? <X className="w-3 h-3"/> : <Plus className="w-3 h-3"/>} {showQC ? "Tutup QC Check" : "QC Cek Fungsional (Klik Disini)"}</button>
+                                <button type="button" onClick={async () => {
+                                    if (!showQC && qcItems.length === 0 && initial?.ownerId) {
+                                        setQcLoadingState('loading');
+                                        const items = await loadQCItemsDirect(initial.ownerId);
+                                        if (items.length > 0) setQCItems(items);
+                                        setQcLoadingState('done');
+                                    }
+                                    setShowQC(!showQC);
+                                }} className={`w-full py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 border border-dashed transition-all mb-2 ${showQC ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-amber-50 text-amber-600 border-amber-300'}`}>{showQC ? <X className="w-3 h-3"/> : <Plus className="w-3 h-3"/>} {showQC ? "Tutup QC Check" : qcLoadingState === 'loading' ? "Memuat..." : `QC Cek Fungsional (${qcItems.length > 0 ? qcItems.length + ' item' : 'Klik Disini'})`}</button>
                                 {showQC && (
                                     <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 mb-4 animate-fade-in shadow-inner">
                                         <h4 className="font-bold text-sm text-amber-900 mb-3">✓ Cek Fungsional Perangkat ({qcItems.length} items)</h4>
                                         {qcItems.length === 0 ? (
-                                            <p className="text-xs text-amber-600 text-center py-4">Belum ada item QC. Tambahkan dari Master Data → Cek Fungsional.</p>
+                                            <p className="text-xs text-amber-600 text-center py-4">{qcLoadingState === 'loading' ? '⏳ Memuat item QC...' : 'Belum ada item QC. Tambahkan dari Pengaturan → Master Data → Cek Fungsional.'}</p>
                                         ) : (
                                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                                                 {qcItems.map(item => {
@@ -13679,12 +13736,20 @@ ${tableHtml}
 
                             {/* Kelengkapan / Accessories Section */}
                             <div>
-                                <button type="button" onClick={() => setShowKelengkapan(!showKelengkapan)} className={`w-full py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 border border-dashed transition-all mb-2 ${showKelengkapan ? 'bg-green-50 text-green-600 border-green-200' : 'bg-teal-50 text-teal-600 border-teal-300'}`}>{showKelengkapan ? <X className="w-3 h-3"/> : <Plus className="w-3 h-3"/>} {showKelengkapan ? "Tutup Cek Kelengkapan" : "Cek Kelengkapan / Aksesoris (Klik Disini)"}</button>
+                                <button type="button" onClick={async () => {
+                                    if (!showKelengkapan && kelengkapanItems.length === 0 && initial?.ownerId) {
+                                        setKelLoadingState('loading');
+                                        const items = await loadKelengkapanItemsDirect(initial.ownerId);
+                                        if (items.length > 0) setKelengkapanItems(items);
+                                        setKelLoadingState('done');
+                                    }
+                                    setShowKelengkapan(!showKelengkapan);
+                                }} className={`w-full py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 border border-dashed transition-all mb-2 ${showKelengkapan ? 'bg-green-50 text-green-600 border-green-200' : 'bg-teal-50 text-teal-600 border-teal-300'}`}>{showKelengkapan ? <X className="w-3 h-3"/> : <Plus className="w-3 h-3"/>} {showKelengkapan ? "Tutup Cek Kelengkapan" : kelLoadingState === 'loading' ? "Memuat..." : `Cek Kelengkapan (${kelengkapanItems.length > 0 ? kelengkapanItems.length + ' item' : 'Klik Disini'})`}</button>
                                 {showKelengkapan && (
                                     <div className="bg-teal-50 p-4 rounded-xl border border-teal-200 mb-4 animate-fade-in shadow-inner">
                                         <h4 className="font-bold text-sm text-teal-900 mb-3">📦 Cek Kelengkapan Paket ({kelengkapanItems.length} items)</h4>
                                         {kelengkapanItems.length === 0 ? (
-                                            <p className="text-xs text-teal-600 text-center py-4">Belum ada item master atau custom. Hubungi admin untuk setup.</p>
+                                            <p className="text-xs text-teal-600 text-center py-4">{kelLoadingState === 'loading' ? '⏳ Memuat item kelengkapan...' : 'Belum ada item kelengkapan. Tambahkan dari Pengaturan → Master Data → Kelengkapan.'}</p>
                                         ) : (
                                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                                                 {kelengkapanItems.map(item => {
