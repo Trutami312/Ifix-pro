@@ -15027,12 +15027,12 @@ ${tableHtml}
                                 </div>
                             </div>
 
-                            <div className="space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                 {paginatedSales.length === 0 && (
-                                    <div className="bg-white rounded-2xl p-10 text-center text-slate-400 border border-slate-200 shadow-sm">Tidak ada riwayat penjualan.</div>
+                                    <div className="md:col-span-2 xl:col-span-3 bg-white rounded-2xl p-10 text-center text-slate-400 border border-slate-200 shadow-sm">Tidak ada riwayat penjualan.</div>
                                 )}
                                 {paginatedSales.map(s => (
-                                    <div key={s.id} className={`bg-white rounded-2xl shadow-sm border ${s.status === 'cancelled' ? 'border-red-200 bg-red-50/30' : 'border-slate-200'} overflow-hidden`}>
+                                    <div key={s.id} className={`bg-white rounded-2xl shadow-sm border flex flex-col ${s.status === 'cancelled' ? 'border-red-200 bg-red-50/30' : 'border-slate-200'} overflow-hidden`}>
                                         {/* Header card: tanggal + metode + status */}
                                         <div className="flex items-center justify-between gap-2 px-4 py-3 bg-slate-50 border-b border-slate-100">
                                             <div className="flex items-center gap-2 flex-wrap">
@@ -27884,8 +27884,15 @@ ${debt.paid > 0 ? `⚠️ Sudah ada pembayaran ${formatCurrency(debt.paid)} yang
                 // Priority 2: Durasi trial dihitung dari hari pertama owner buka AI
                 const trialStartStorageKey = `ai_trial_start_${oid}`;
                 let trialStart = localStorage.getItem(trialStartStorageKey);
+                // Jika belum ada start date, buat baru hanya jika aiTrialDays masih > 0
+                // (tidak auto-start lagi setelah clear localStorage → trial dianggap habis)
                 if (!trialStart) {
-                    trialStart = now.toISOString();
+                    // Cek apakah masih dalam masa grace period 1 hari sejak aiTrialEnabled
+                    // Jika tidak ada aiTrialStartedAt di accessRights → expired
+                    if (!tr.aiTrialStartedAt) {
+                        return { active: false, expired: true, remainingDays: 0, key: '', provider: 'groq' };
+                    }
+                    trialStart = tr.aiTrialStartedAt;
                     localStorage.setItem(trialStartStorageKey, trialStart);
                 }
                 const trialDays = Math.max(1, parseInt(tr.aiTrialDays) || 7);
