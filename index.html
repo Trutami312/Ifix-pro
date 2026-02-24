@@ -18913,6 +18913,7 @@ async function doCetakBluetooth() {
         const AfterSalesCare = () => {
           const { activeOwner, activeStore } = useContext(SessionContext);
           const { data: allServices, loading: servicesLoading } = useFirestoreCollection('services', activeOwner?.id, activeStore?.id);
+          const { data: allCustomers } = useFirestoreCollection('customers', activeOwner?.id, activeStore?.id);
           const [searchQuery, setSearchQuery] = useState('');
           const [warrantyFilter, setWarrantyFilter] = useState('smart');
           const [contactFilter, setContactFilter] = useState('all');   // all | sent | unsent
@@ -18922,7 +18923,17 @@ async function doCetakBluetooth() {
             try { return JSON.parse(localStorage.getItem('afterSalesSent') || '[]'); } catch { return []; }
           });
 
-          // ── Filter dari Firestore: hanya status Selesai/Diambil ──
+          // ── Lookup address dari customers (fallback untuk service lama) ──
+          const customerAddressMap = useMemo(() => {
+            const map = {};
+            (allCustomers || []).forEach(c => {
+              if (c.phone)    map[c.phone] = c.address || '';
+              if (c.name)     map[c.name]  = c.address || '';
+            });
+            return map;
+          }, [allCustomers]);
+
+          // ── Filter dari PocketBase: hanya status Selesai/Diambil ──
           const records = useMemo(() =>
             (allServices || []).filter(s => s.status === 'Selesai' || s.status === 'Diambil'),
             [allServices]
@@ -18941,11 +18952,14 @@ async function doCetakBluetooth() {
               const completedDate = toJsDate(tsSource);
               const daysSinceCompleted = !completedDate ? 0
                 : Math.floor((now - completedDate) / (1000 * 60 * 60 * 24));
-              // Normalisasi address: Firestore simpan sebagai 'address'
-              const address = rec.address || rec.customerAddress || '';
+              // Normalisasi address: service.address → lookup dari customers by phone → by name
+              const address = rec.address || rec.customerAddress
+                || customerAddressMap[rec.customerPhone]
+                || customerAddressMap[rec.customerName]
+                || '';
               return { ...rec, address, warrantyEnd, remaining, daysSinceCompleted };
             });
-          }, [records]);
+          }, [records, customerAddressMap]);
 
           // ── Statistik global (dari semua data, bukan filtered) ──
           const stats = useMemo(() => ({
