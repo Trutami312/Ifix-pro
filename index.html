@@ -12543,7 +12543,12 @@ ${tableHtml}
                      const service = services.find(s => s.id === id);
                      const prevStatus = service?.status;
 
-                     await updateDoc(doc(db, APP_COLLECTION_PREFIX, 'public', 'services', id), { status: newStatus });
+                     const statusUpdate = { status: newStatus };
+                     // Set completedAt saat status berubah ke Selesai (dipakai AfterSalesCare)
+                     if (newStatus === 'Selesai' && prevStatus !== 'Selesai') {
+                         statusUpdate.completedAt = serverTimestamp();
+                     }
+                     await updateDoc(doc(db, APP_COLLECTION_PREFIX, 'public', 'services', id), statusUpdate);
                      
                      // Status Selesai: payModal dulu, lalu WA popup
                      if (newStatus === 'Selesai') {
@@ -18849,11 +18854,20 @@ async function doCetakBluetooth() {
           return cleaned;
         }
 
+        // ── Helper: Normalisasi Firestore Timestamp / string / Date → Date object ──
+        function toJsDate(val) {
+          if (!val) return null;
+          if (val && typeof val === 'object' && typeof val.toDate === 'function') return val.toDate();
+          if (val && typeof val === 'object' && val.seconds) return new Date(val.seconds * 1000);
+          const d = new Date(val);
+          return isNaN(d.getTime()) ? null : d;
+        }
+
         // ── Helper: Hitung tanggal berakhir garansi ──
         function getWarrantyEndDate(completedAt, warrantyDays) {
           if (!completedAt || !warrantyDays) return null;
-          const completed = new Date(completedAt);
-          if (isNaN(completed.getTime())) return null;
+          const completed = toJsDate(completedAt);
+          if (!completed) return null;
           const end = new Date(completed);
           end.setDate(end.getDate() + Number(warrantyDays));
           return end;
@@ -18862,8 +18876,8 @@ async function doCetakBluetooth() {
         // ── Helper: Format tanggal ke Bahasa Indonesia ──
         function formatDateAfterSales(date) {
           if (!date) return '-';
-          const d = new Date(date);
-          if (isNaN(d.getTime())) return '-';
+          const d = toJsDate(date);
+          if (!d) return '-';
           return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
         }
 
@@ -18898,9 +18912,7 @@ async function doCetakBluetooth() {
 
         const AfterSalesCare = () => {
           const { activeOwner, activeStore } = useContext(SessionContext);
-          const [records, setRecords] = useState([]);
-          const [loading, setLoading] = useState(true);
-          const [error, setError] = useState(null);
+          const { data: allServices, loading: servicesLoading } = useFirestoreCollection('services', activeOwner?.id, activeStore?.id);
           const [searchQuery, setSearchQuery] = useState('');
           const [warrantyFilter, setWarrantyFilter] = useState('smart');
           const [contactFilter, setContactFilter] = useState('all');   // all | sent | unsent
@@ -18910,60 +18922,28 @@ async function doCetakBluetooth() {
             try { return JSON.parse(localStorage.getItem('afterSalesSent') || '[]'); } catch { return []; }
           });
 
-          // ── Fetch data dari PocketBase ──
-          // Filter minimal di server (hanya status + tenant), sisanya di client-side
-          // agar tidak gagal akibat field null/kosong di PocketBase
-          const fetchData = useCallback(async () => {
-            setLoading(true);
-            setError(null);
-            try {
-              // Hanya filter status di server — field lain (warrantyDays, completedAt) di-handle JS
-              let filterParts = ['(status = "Selesai" || status = "Diambil")'];
-              if (activeOwner?.id) filterParts.push(`ownerId = "${activeOwner.id}"`);
-              if (activeStore?.id && activeStore.id !== 'all') filterParts.push(`storeId = "${activeStore.id}"`);
-
-              const result = await pb.collection('services').getFullList({
-                filter: filterParts.join(' && '),
-                sort: '-completedAt',
-              });
-
-              console.log(`✅ AfterSalesCare: ${result.length} records fetched (status Selesai/Diambil)`);
-              setRecords(result);
-            } catch (err) {
-              console.error('❌ AfterSalesCare fetch error:', err);
-              // Fallback: coba tanpa filter sama sekali jika ada error filter
-              try {
-                console.warn('🔄 Trying fallback fetch without filter...');
-                let fbParts = [];
-                if (activeOwner?.id) fbParts.push(`ownerId = "${activeOwner.id}"`);
-                const fallback = await pb.collection('services').getFullList({
-                  filter: fbParts.length ? fbParts.join(' && ') : undefined,
-                  sort: '-completedAt',
-                });
-                // Filter status di client-side
-                const filtered = fallback.filter(r => r.status === 'Selesai' || r.status === 'Diambil');
-                console.log(`✅ Fallback: ${filtered.length} records (from ${fallback.length} total)`);
-                setRecords(filtered);
-              } catch (fallbackErr) {
-                setError(fallbackErr?.message || 'Gagal mengambil data servis. Pastikan PocketBase server aktif.');
-              }
-            } finally {
-              setLoading(false);
-            }
-          }, [activeOwner?.id, activeStore?.id]);
-
-          useEffect(() => { fetchData(); }, [fetchData]);
+          // ── Filter dari Firestore: hanya status Selesai/Diambil ──
+          const records = useMemo(() =>
+            (allServices || []).filter(s => s.status === 'Selesai' || s.status === 'Diambil'),
+            [allServices]
+          );
+          const loading = servicesLoading;
+          const error = null;
 
           // ── Enrich semua records dengan computed fields ──
           const enrichedRecords = useMemo(() => {
             const now = new Date(); now.setHours(0,0,0,0);
             return records.map(rec => {
-              const warrantyEnd = getWarrantyEndDate(rec.completedAt, rec.warrantyDays);
+              // Prioritas: completedAt → updatedAt → createdAt sebagai fallback
+              const tsSource = rec.completedAt || rec.updatedAt || rec.createdAt;
+              const warrantyEnd = getWarrantyEndDate(tsSource, rec.warrantyDays);
               const remaining = daysUntil(warrantyEnd);
-              const completedDate = new Date(rec.completedAt);
-              const daysSinceCompleted = isNaN(completedDate.getTime()) ? 0
+              const completedDate = toJsDate(tsSource);
+              const daysSinceCompleted = !completedDate ? 0
                 : Math.floor((now - completedDate) / (1000 * 60 * 60 * 24));
-              return { ...rec, warrantyEnd, remaining, daysSinceCompleted };
+              // Normalisasi address: Firestore simpan sebagai 'address'
+              const address = rec.address || rec.customerAddress || '';
+              return { ...rec, address, warrantyEnd, remaining, daysSinceCompleted };
             });
           }, [records]);
 
@@ -19102,7 +19082,7 @@ async function doCetakBluetooth() {
                     Filter
                     {isFilterActive && <span className="bg-white text-blue-600 rounded-full text-xs font-bold px-1.5 leading-5 min-w-[20px] text-center">!</span>}
                   </button>
-                  <button onClick={fetchData} disabled={loading} className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-all duration-200 shadow-sm disabled:opacity-50">
+                  <button onClick={() => window.location.reload()} disabled={loading} className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-all duration-200 shadow-sm disabled:opacity-50">
                     <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                     <span className="hidden sm:inline">Refresh</span>
                   </button>
