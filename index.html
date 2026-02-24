@@ -10981,9 +10981,9 @@ ${tableHtml}
                             </div>
 
                             {/* Card List Inventori */}
-                            <div className="space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {inventoryLoading && (
-                                    <div className="bg-white rounded-xl p-10 text-center border border-slate-200">
+                                    <div className="md:col-span-2 bg-white rounded-xl p-10 text-center border border-slate-200">
                                         <div className="flex flex-col items-center gap-2 text-slate-400">
                                             <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                                             <span className="text-sm">Memuat data stok...</span>
@@ -10991,7 +10991,7 @@ ${tableHtml}
                                     </div>
                                 )}
                                 {!inventoryLoading && paginatedInventory.length === 0 && (
-                                    <div className="bg-white rounded-xl p-10 text-center border border-slate-200 text-slate-400 text-sm">📦 Tidak ada data inventori untuk ditampilkan</div>
+                                    <div className="md:col-span-2 bg-white rounded-xl p-10 text-center border border-slate-200 text-slate-400 text-sm">📦 Tidak ada data inventori untuk ditampilkan</div>
                                 )}
                                 {paginatedInventory.map((i, idx) => {
                                     const profitPerUnit = (parseFloat(i.sellPrice) || 0) - (parseFloat(i.buyPrice) || 0);
@@ -15027,9 +15027,9 @@ ${tableHtml}
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {paginatedSales.length === 0 && (
-                                    <div className="md:col-span-2 xl:col-span-3 bg-white rounded-2xl p-10 text-center text-slate-400 border border-slate-200 shadow-sm">Tidak ada riwayat penjualan.</div>
+                                    <div className="md:col-span-2 bg-white rounded-2xl p-10 text-center text-slate-400 border border-slate-200 shadow-sm">Tidak ada riwayat penjualan.</div>
                                 )}
                                 {paginatedSales.map(s => (
                                     <div key={s.id} className={`bg-white rounded-2xl shadow-sm border flex flex-col ${s.status === 'cancelled' ? 'border-red-200 bg-red-50/30' : 'border-slate-200'} overflow-hidden`}>
