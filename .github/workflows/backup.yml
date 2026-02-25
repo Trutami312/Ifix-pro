@@ -1,0 +1,58 @@
+name: iFix Pro - Auto Backup ke Google Drive
+
+on:
+  schedule:
+    - cron: '0 19 * * *'  # Setiap hari jam 02:00 WIB (19:00 UTC)
+  workflow_dispatch:       # Bisa dijalankan manual
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          rclone version
+
+      - name: Setup rclone config
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+
+      - name: Setup backup config
+        run: |
+          cat > /tmp/ifix_backup_config.json << EOF
+          {
+            "pb_url": "${{ secrets.PB_URL }}",
+            "pb_admin_email": "${{ secrets.PB_ADMIN_EMAIL }}",
+            "pb_admin_pass": "${{ secrets.PB_ADMIN_PASS }}",
+            "rclone_remote": "gdrive",
+            "gdrive_root": "iFix-Pro-Backups",
+            "include_pb_backup": false,
+            "include_files": true,
+            "keep_last_n": 30,
+            "log_file": "/tmp/ifix_backup.log"
+          }
+          EOF
+
+      - name: Jalankan backup
+        run: |
+          IFIX_BACKUP_CONFIG=/tmp/ifix_backup_config.json python3 server/backup_ifix.py
+        
+      - name: Tampilkan log
+        if: always()
+        run: cat /tmp/ifix_backup.log 2>/dev/null || echo "Log tidak ditemukan"
