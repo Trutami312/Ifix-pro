@@ -16165,6 +16165,7 @@ ${tableHtml}
                         phone: c.phone || '',
                         address: c.address || '',
                         phoneType: c.phoneType || '',
+                        customerType: c.customerType || '',
                         createdAt: c.createdAt,
                         source: 'database',
                         serviceCount: 0,
@@ -16233,8 +16234,16 @@ ${tableHtml}
                     }
                 });
                 
-                // 🔹 Filter: Tampilkan pelanggan yang punya transaksi service, ATAU diinput manual dengan customerType service/kosong
-                const result2 = items.filter(c => c.serviceCount > 0 || (c.dbRecord && !c.deleted && (!c.customerType || c.customerType === 'service')));
+                // 🔹 Filter: Tampilkan pelanggan service
+                // Jika pelanggan punya customerType eksplisit di DB → ikuti type tersebut
+                // Jika tidak ada customerType → tampilkan berdasarkan transaksi
+                const result2 = items.filter(c => {
+                    if (c.deleted) return false;
+                    // DB record dengan customerType eksplisit → hanya tampilkan jika type = service atau kosong
+                    if (c.dbRecord && c.customerType === 'sales') return false;
+                    // Tampilkan jika ada transaksi service ATAU diinput manual sebagai service
+                    return c.serviceCount > 0 || (c.dbRecord && (!c.customerType || c.customerType === 'service'));
+                });
                 // Sort by serviceCount descending (pelanggan paling sering servis paling atas)
                 result2.sort((a, b) => (b.serviceCount || 0) - (a.serviceCount || 0));
                 return result2;
@@ -16249,6 +16258,7 @@ ${tableHtml}
                         phone: c.phone || '',
                         address: c.address || '',
                         phoneType: c.phoneType || '',
+                        customerType: c.customerType || '',
                         createdAt: c.createdAt,
                         source: 'database',
                         salesCount: 0,
@@ -16312,8 +16322,16 @@ ${tableHtml}
                     }
                 });
                 
-                // 🔹 Filter: Tampilkan pelanggan yang punya transaksi penjualan, ATAU diinput manual dengan customerType sales
-                const result2 = items.filter(c => c.salesCount > 0 || (c.dbRecord && !c.deleted && c.customerType === 'sales'));
+                // 🔹 Filter: Tampilkan pelanggan penjualan
+                // Jika pelanggan punya customerType eksplisit di DB → ikuti type tersebut
+                // Jika tidak ada customerType → tampilkan berdasarkan transaksi
+                const result2 = items.filter(c => {
+                    if (c.deleted) return false;
+                    // DB record dengan customerType eksplisit service → jangan tampilkan di tab sales
+                    if (c.dbRecord && c.customerType === 'service') return false;
+                    // Tampilkan jika ada transaksi sales ATAU diinput manual sebagai sales
+                    return c.salesCount > 0 || (c.dbRecord && c.customerType === 'sales');
+                });
                 // Sort by salesCount descending (pelanggan paling sering beli paling atas)
                 result2.sort((a, b) => (b.salesCount || 0) - (a.salesCount || 0));
                 return result2;
@@ -16724,7 +16742,7 @@ ${tableHtml}
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Tipe Pelanggan</label>
-                                        <select name="customerType" defaultValue={modal.customerType || 'sales'} className="w-full border p-2 rounded-lg text-sm focus:outline-blue-500">
+                                        <select name="customerType" defaultValue={modal.customerType || (customerTab === 'service' ? 'service' : 'sales')} className="w-full border p-2 rounded-lg text-sm focus:outline-blue-500">
                                             <option value="sales">🛒 Pelanggan Penjualan</option>
                                             <option value="service">📱 Pelanggan Service</option>
                                         </select>
