@@ -17,6 +17,15 @@
     
     <link rel="icon" type="image/png" href="/logo-ifix.png">
     <link rel="apple-touch-icon" href="/logo-ifix.png">
+
+    <!-- ⚡ Preconnect ke semua CDN agar DNS resolved lebih awal -->
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preconnect" href="https://esm.sh" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="dns-prefetch" href="https://amproject.my.id">
     
     <script>
         // Generate inline manifest
@@ -119,8 +128,9 @@
     
     <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
     
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Google Fonts - non-blocking async load -->
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"></noscript>
     
     <style>
       body { background-color: #f8fafc; font-family: 'Inter', sans-serif; overflow-x: hidden; }
@@ -358,6 +368,20 @@
       }
       .swipe-hint { animation: swipeHint 2s ease-in-out 1; }
     </style>
+    <!-- Google Identity Services – lazy load, hanya dimuat saat dibutuhkan backup Drive -->
+    <script>
+        window._loadGIS = function() {
+            return new Promise((resolve, reject) => {
+                if (window.google?.accounts?.oauth2) { resolve(); return; }
+                const s = document.createElement('script');
+                s.src = 'https://accounts.google.com/gsi/client';
+                s.async = true; s.defer = true;
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('Gagal memuat Google Identity Services'));
+                document.head.appendChild(s);
+            });
+        };
+    </script>
 </head>
 <body class="text-slate-800 antialiased selection:bg-blue-100 selection:text-blue-900">
     <!-- Error Display Container -->
@@ -383,6 +407,32 @@
         </div>
     </div>
     
+    <!-- Loading splash — langsung terlihat sebelum React/Babel siap -->
+    <div id="initial-splash" style="
+        position:fixed;inset:0;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;
+        background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);
+        z-index:9999;gap:24px;transition:opacity 0.5s ease;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#7c3aed);display:flex;align-items:center;justify-content:center;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div>
+          <div style="font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.5px;font-family:sans-serif;">iFix Pro</div>
+          <div style="font-size:12px;color:#94a3b8;font-weight:400;font-family:sans-serif;">Enterprise POS</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+        <div style="width:200px;height:4px;background:#1e293b;border-radius:999px;overflow:hidden;border:1px solid #334155;">
+          <div style="height:100%;background:linear-gradient(90deg,#2563eb,#7c3aed);border-radius:999px;animation:splashProgress 4s ease-out forwards;"></div>
+        </div>
+        <div style="font-size:13px;color:#64748b;font-family:sans-serif;">Memuat aplikasi...</div>
+      </div>
+      <style>
+        @keyframes splashProgress{from{width:0%}to{width:90%}}
+      </style>
+    </div>
+
     <div id="root"></div>
 
     <script>
@@ -512,7 +562,7 @@
         // Loading indicator
         window.addEventListener('DOMContentLoaded', function() {
             console.log('✅ DOM loaded');
-            
+
             // Check if React loaded
             setTimeout(function() {
                 const root = document.getElementById('root');
@@ -1931,95 +1981,26 @@
         // ==========================================
         // 🔧 SERVICE WORKER
         // ==========================================
-        // Inline Service Worker (no external file needed)
+        // ⚡ Service Worker: unregister semua SW lama (blob URL), lalu daftar /sw.js baru
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                const swCode = `
-                    const CACHE_NAME = 'ifix-pro-v20';
-                    const urlsToCache = [
-                        '/logo-ifix.png'
-                    ];
-                    
-                    self.addEventListener('install', e => {
-                        console.log('SW: Installing v4');
-                        e.waitUntil(
-                            caches.open(CACHE_NAME).then(cache => {
-                                console.log('SW: Caching logo');
-                                return cache.addAll(urlsToCache);
-                            }).then(() => self.skipWaiting())
-                        );
-                    });
-                    
-                    self.addEventListener('activate', e => {
-                        console.log('SW: Activating v4');
-                        e.waitUntil(
-                            caches.keys().then(cacheNames => {
-                                return Promise.all(
-                                    cacheNames.map(cacheName => {
-                                        if (cacheName !== CACHE_NAME) {
-                                            console.log('SW: Deleting old cache:', cacheName);
-                                            return caches.delete(cacheName);
-                                        }
-                                    })
-                                );
-                            }).then(() => self.clients.claim())
-                        );
-                    });
-                    
-                    self.addEventListener('fetch', e => {
-                        const url = new URL(e.request.url);
-                        
-                        // BYPASS Service Worker for external domains & API
-                        if (!url.origin.includes(self.location.origin)) {
-                            // Don't intercept external requests (PocketBase API, CDN, etc.)
-                            return;
+            window.addEventListener('load', async () => {
+                try {
+                    // Unregister SEMUA SW yang sudah terdaftar (termasuk blob URL lama)
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    for (const reg of registrations) {
+                        if (reg.active && reg.active.scriptURL && !reg.active.scriptURL.endsWith('/sw.js')) {
+                            await reg.unregister();
+                            console.log('♻️ SW lama di-unregister:', reg.active.scriptURL.substring(0, 60));
                         }
-                        
-                        // NEVER cache HTML - always fetch from network
-                        if (e.request.method === 'GET' && 
-                            (e.request.destination === 'document' || 
-                             url.pathname.endsWith('.html') || 
-                             url.pathname === '/' || 
-                             url.pathname === '/index.html')) {
-                            e.respondWith(
-                                fetch(e.request, { cache: 'no-store' }).catch(() => {
-                                    return new Response(
-                                        '<h1>Offline</h1><p>Anda sedang offline. Silakan coba lagi saat terhubung ke internet.</p>',
-                                        { headers: { 'Content-Type': 'text/html' } }
-                                    );
-                                })
-                            );
-                            return;
-                        }
-                        
-                        // Cache-first strategy for logo only
-                        if (url.pathname.includes('/logo-ifix.png')) {
-                            e.respondWith(
-                                caches.match(e.request).then(response => {
-                                    return response || fetch(e.request).then(fetchResponse => {
-                                        return caches.open(CACHE_NAME).then(cache => {
-                                            cache.put(e.request, fetchResponse.clone());
-                                            return fetchResponse;
-                                        });
-                                    });
-                                })
-                            );
-                            return;
-                        }
-                        
-                        // For everything else from same origin (if any), just fetch
-                        // Don't cache, don't interfere
-                    });
-                `;
-                const swBlob = new Blob([swCode], { type: 'application/javascript' });
-                const swUrl = URL.createObjectURL(swBlob);
-                
-                navigator.serviceWorker.register(swUrl).then(reg => {
-                    console.log('PWA: Service Worker registered');
-                    // Force update pada reload untuk memastikan tidak ada cache lama
+                    }
+                } catch(e) { console.warn('SW cleanup skip:', e.message); }
+
+                // Daftar SW baru
+                navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(reg => {
+                    console.log('✅ SW /sw.js terdaftar, scope:', reg.scope);
                     reg.update();
                 }).catch(err => {
-                    console.log('PWA: SW registration skipped (OK for development)');
+                    console.log('SW: Skip (OK di development):', err.message);
                 });
             });
         } else {
@@ -2234,8 +2215,8 @@
             progressMessage += `📱 *Update Progress Servis HP*\n`;
             progressMessage += `━━━━━━━━━━━━━━━━━━\n\n`;
             progressMessage += `🆔 *Token:* ${service.token}\n`;
-            progressMessage += `📱 *HP:* ${service.unitType || service.deviceType || '-'}\n`;
-            progressMessage += `🔧 *Keluhan:* ${service.complaint || service.problem || '-'}\n`;
+            progressMessage += `📱 *HP:* ${service.deviceModel || service.unitType || service.deviceType || '-'}\n`;
+            progressMessage += `🔧 *Keluhan:* ${service.problem || service.complaint || (Array.isArray(service.complaintTags) ? service.complaintTags.join(', ') : '') || '-'}\n`;
             progressMessage += `⚙️ *Status:* ${service.status}\n\n`;
             progressMessage += `💰 *Biaya Servis:* ${formatCurrency(service.costEstimate)}\n`;
             
@@ -4028,7 +4009,7 @@ const SessionProvider = ({ children }) => {
                 <div className="min-h-screen bg-slate-100 py-10 px-4">
                     <div className="max-w-lg mx-auto bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
                         <div className="bg-slate-900 p-6 text-white text-center relative">{store?.logo ? <img src={store.logo} className="w-16 h-16 object-contain mx-auto mb-3 bg-white rounded-lg p-1"/> : <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center font-bold text-2xl mx-auto mb-3">iF</div>}<h1 className="font-bold text-xl">{store?.name || 'iFix Service Tracker'}</h1><p className="text-slate-400 text-xs mt-1">{store?.address}</p><div className="absolute top-4 right-4"><button onClick={onBack} className="text-slate-400 hover:text-white text-xs font-bold bg-slate-800 px-3 py-1 rounded-full">Login</button></div></div>
-                        <div className="p-6"><div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 mb-6 text-center shadow-inner"><p className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2">Status Pengerjaan</p><div className={`inline-block px-6 py-2 rounded-full text-white font-bold text-lg shadow-lg ${statusColor} mb-2`}>{service.status}</div><p className="text-xs text-slate-500">Update Terakhir: {formatDate(service.updatedAt)}</p></div><div className="space-y-4 mb-8"><div className="flex justify-between items-center border-b border-slate-100 pb-3"><div className="flex items-center gap-3"><div className="bg-blue-100 p-2 rounded-lg text-blue-600"><UserPlus className="w-5 h-5"/></div><div><p className="text-xs text-slate-400 font-bold">Pelanggan</p><p className="font-bold text-slate-800">{service.customerName}</p></div></div></div><div className="flex justify-between items-center border-b border-slate-100 pb-3"><div className="flex items-center gap-3"><div className="bg-purple-100 p-2 rounded-lg text-purple-600"><Smartphone className="w-5 h-5"/></div><div><p className="text-xs text-slate-400 font-bold">Perangkat</p><p className="font-bold text-slate-800">{service.unitType || service.deviceType}</p></div></div></div><div className="flex justify-between items-center border-b border-slate-100 pb-3"><div className="flex items-center gap-3"><div className="bg-orange-100 p-2 rounded-lg text-orange-600"><Wrench className="w-5 h-5"/></div><div><p className="text-xs text-slate-400 font-bold">Keluhan</p><p className="font-bold text-slate-800">{service.complaint || service.problem}</p></div></div></div><div className="flex justify-between items-center border-b border-slate-100 pb-3"><div className="flex items-center gap-3"><div className="bg-green-100 p-2 rounded-lg text-green-600"><Wallet className="w-5 h-5"/></div><div><p className="text-xs text-slate-400 font-bold">Biaya Estimasi</p><p className="font-bold text-green-600 text-lg">{formatCurrency(service.costEstimate)}</p></div></div></div></div><div><h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Activity className="w-5 h-5 text-blue-500"/> Riwayat Status</h3><div className="space-y-0 pl-2"><div className="relative pl-8 pb-6 timeline-item"><div className="timeline-line"></div><div className="absolute left-0 top-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center border-2 border-white shadow-sm"><CheckCheck className="w-4 h-4"/></div><p className="font-bold text-sm text-slate-800">Diterima</p><p className="text-xs text-slate-500">{formatDate(service.createdAt)}</p></div>{service.status !== 'Diterima' && (<div className="relative pl-8 pb-0 timeline-item"><div className="absolute left-0 top-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center border-2 border-white shadow-sm"><Activity className="w-4 h-4"/></div><p className="font-bold text-sm text-slate-800">{service.status}</p><p className="text-xs text-slate-500">{formatDate(service.updatedAt)}</p></div>)}</div></div></div><div className="bg-slate-50 p-4 text-center text-xs text-slate-400 border-t border-slate-200">&copy; 2026 iFix Enterprise Cloud</div></div></div>
+                        <div className="p-6"><div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 mb-6 text-center shadow-inner"><p className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2">Status Pengerjaan</p><div className={`inline-block px-6 py-2 rounded-full text-white font-bold text-lg shadow-lg ${statusColor} mb-2`}>{service.status}</div><p className="text-xs text-slate-500">Update Terakhir: {formatDate(service.updatedAt)}</p></div><div className="space-y-4 mb-8"><div className="flex justify-between items-center border-b border-slate-100 pb-3"><div className="flex items-center gap-3"><div className="bg-blue-100 p-2 rounded-lg text-blue-600"><UserPlus className="w-5 h-5"/></div><div><p className="text-xs text-slate-400 font-bold">Pelanggan</p><p className="font-bold text-slate-800">{service.customerName}</p></div></div></div><div className="flex justify-between items-center border-b border-slate-100 pb-3"><div className="flex items-center gap-3"><div className="bg-purple-100 p-2 rounded-lg text-purple-600"><Smartphone className="w-5 h-5"/></div><div><p className="text-xs text-slate-400 font-bold">Perangkat</p><p className="font-bold text-slate-800">{service.deviceModel || service.unitType || service.deviceType || '-'}</p></div></div></div><div className="flex justify-between items-center border-b border-slate-100 pb-3"><div className="flex items-center gap-3"><div className="bg-orange-100 p-2 rounded-lg text-orange-600"><Wrench className="w-5 h-5"/></div><div><p className="text-xs text-slate-400 font-bold">Keluhan</p><p className="font-bold text-slate-800">{service.problem || service.complaint || (Array.isArray(service.complaintTags) ? service.complaintTags.join(', ') : '') || '-'}</p></div></div></div><div className="flex justify-between items-center border-b border-slate-100 pb-3"><div className="flex items-center gap-3"><div className="bg-green-100 p-2 rounded-lg text-green-600"><Wallet className="w-5 h-5"/></div><div><p className="text-xs text-slate-400 font-bold">Biaya Estimasi</p><p className="font-bold text-green-600 text-lg">{formatCurrency(service.costEstimate)}</p></div></div></div></div><div><h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Activity className="w-5 h-5 text-blue-500"/> Riwayat Status</h3><div className="space-y-0 pl-2"><div className="relative pl-8 pb-6 timeline-item"><div className="timeline-line"></div><div className="absolute left-0 top-0 w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center border-2 border-white shadow-sm"><CheckCheck className="w-4 h-4"/></div><p className="font-bold text-sm text-slate-800">Diterima</p><p className="text-xs text-slate-500">{formatDate(service.createdAt)}</p></div>{service.status !== 'Diterima' && (<div className="relative pl-8 pb-0 timeline-item"><div className="absolute left-0 top-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center border-2 border-white shadow-sm"><Activity className="w-4 h-4"/></div><p className="font-bold text-sm text-slate-800">{service.status}</p><p className="text-xs text-slate-500">{formatDate(service.updatedAt)}</p></div>)}</div></div></div><div className="bg-slate-50 p-4 text-center text-xs text-slate-400 border-t border-slate-200">&copy; 2026 iFix Enterprise Cloud</div></div></div>
             );
         };
 
@@ -5551,6 +5532,187 @@ const KelengkapanItemsModal = ({ close, ownerId }) => {
             </div>
         </div>
     );
+};
+
+// ============================================================
+//  GOOGLE DRIVE BACKUP UTILITY
+//  – OAuth2 via Google Identity Services
+//  – Drive API v3 (fetch-based, tanpa gapi library)
+//  – Konfigurasi tersimpan di localStorage per tenant
+// ============================================================
+const GDRIVE_SCOPE   = 'https://www.googleapis.com/auth/drive.file';
+const GDRIVE_TOKEN_KEY  = (oid) => `gdrive_token_${oid}`;
+const GDRIVE_CONFIG_KEY = (oid) => `gdrive_cfg_${oid}`;
+
+// ─── CONFIG HELPERS ─────────────────────────────────────────
+const gdriveLoadConfig = (ownerId) => {
+    try { return JSON.parse(localStorage.getItem(GDRIVE_CONFIG_KEY(ownerId))) || {}; }
+    catch { return {}; }
+};
+const gdriveSaveConfig = (ownerId, patch) => {
+    const cur = gdriveLoadConfig(ownerId);
+    localStorage.setItem(GDRIVE_CONFIG_KEY(ownerId), JSON.stringify({ ...cur, ...patch }));
+};
+
+// ─── TOKEN HELPERS ──────────────────────────────────────────
+const gdriveLoadToken = (ownerId) => {
+    try {
+        const t = JSON.parse(sessionStorage.getItem(GDRIVE_TOKEN_KEY(ownerId)));
+        if (!t || !t.access_token) return null;
+        if (t.expires_at && Date.now() > t.expires_at) { sessionStorage.removeItem(GDRIVE_TOKEN_KEY(ownerId)); return null; }
+        return t.access_token;
+    } catch { return null; }
+};
+const gdriveSaveToken = (ownerId, tokenResp) => {
+    const payload = {
+        access_token: tokenResp.access_token,
+        expires_at  : Date.now() + (tokenResp.expires_in || 3600) * 1000 - 60000,
+    };
+    sessionStorage.setItem(GDRIVE_TOKEN_KEY(ownerId), JSON.stringify(payload));
+};
+const gdriveRevoke = (ownerId) => {
+    sessionStorage.removeItem(GDRIVE_TOKEN_KEY(ownerId));
+    gdriveSaveConfig(ownerId, { connected: false, lastBackup: gdriveLoadConfig(ownerId).lastBackup });
+};
+
+// ─── OAuth2 FLOW ────────────────────────────────────────────
+const gdriveConnect = (clientId, ownerId) => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            await window._loadGIS();
+            const client = window.google.accounts.oauth2.initTokenClient({
+                client_id: clientId,
+                scope    : GDRIVE_SCOPE,
+                callback : (resp) => {
+                    if (resp.error) { reject(new Error(resp.error_description || resp.error)); return; }
+                    gdriveSaveToken(ownerId, resp);
+                    gdriveSaveConfig(ownerId, { clientId, connected: true });
+                    resolve(resp.access_token);
+                },
+            });
+            client.requestAccessToken({ prompt: 'consent' });
+        } catch (e) { reject(e); }
+    });
+};
+
+// ─── DRIVE API HELPERS ──────────────────────────────────────
+const gdriveRequest = async (token, method, url, body = null, isJson = true) => {
+    const headers = { Authorization: `Bearer ${token}` };
+    if (isJson && body) headers['Content-Type'] = 'application/json';
+    const opts = { method, headers };
+    if (body) opts.body = isJson ? JSON.stringify(body) : body;
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Drive API ${res.status}: ${txt.substring(0, 200)}`);
+    }
+    return res.json();
+};
+
+const gdriveGetOrCreateFolder = async (token, name, parentId = null) => {
+    // Cari folder terlebih dahulu
+    let q = `mimeType='application/vnd.google-apps.folder' and name='${name}' and trashed=false`;
+    if (parentId) q += ` and '${parentId}' in parents`;
+    const search = await gdriveRequest(token, 'GET',
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&spaces=drive`
+    );
+    if (search.files && search.files.length > 0) return search.files[0].id;
+    // Buat baru jika belum ada
+    const created = await gdriveRequest(token, 'POST',
+        'https://www.googleapis.com/drive/v3/files',
+        { name, mimeType: 'application/vnd.google-apps.folder', ...(parentId ? { parents: [parentId] } : {}) }
+    );
+    return created.id;
+};
+
+const gdriveUploadJSON = async (token, folderId, filename, jsonData) => {
+    const content    = JSON.stringify(jsonData, null, 2);
+    const boundary   = '---IFIX_BOUNDARY_' + Math.random().toString(36).slice(2);
+    const delimiter  = `\r\n--${boundary}\r\n`;
+    const closeDelim = `\r\n--${boundary}--`;
+    const metadata   = JSON.stringify({ name: filename, mimeType: 'application/json', parents: [folderId] });
+    const body = delimiter
+        + 'Content-Type: application/json; charset=UTF-8\r\n\r\n'
+        + metadata
+        + delimiter
+        + 'Content-Type: application/json\r\n\r\n'
+        + content
+        + closeDelim;
+    const res = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+        {
+            method : 'POST',
+            headers: {
+                Authorization  : `Bearer ${token}`,
+                'Content-Type' : `multipart/related; boundary="${boundary}"`,
+            },
+            body,
+        }
+    );
+    if (!res.ok) throw new Error(`Upload Drive gagal: ${res.status}`);
+    return res.json();
+};
+
+// ─── KUMPULKAN SEMUA DATA TENANT ────────────────────────────
+const gdriveCollectTenantData = async (ownerId) => {
+    const cols = ['services', 'inventory', 'transactions', 'customers', 'sales', 'employees', 'suppliers'];
+    const backup = { version: '2.0', ownerId, createdAt: new Date().toISOString() };
+    for (const col of cols) {
+        try {
+            const snap = await getDocs(query(
+                collection(db, APP_COLLECTION_PREFIX, 'public', col),
+                where('ownerId', '==', ownerId)
+            ));
+            backup[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch { backup[col] = []; }
+    }
+    return backup;
+};
+
+// ─── MAIN BACKUP FUNCTION ─────────────────────────────────
+const gdriveDoBackup = async (ownerId, ownerName, silent = false) => {
+    const cfg   = gdriveLoadConfig(ownerId);
+    if (!cfg.clientId) throw new Error('Client ID Google belum dikonfigurasi.');
+    // Ambil atau minta token baru
+    let token = gdriveLoadToken(ownerId);
+    if (!token) token = await gdriveConnect(cfg.clientId, ownerId);
+
+    if (!silent) console.log('📤 Mulai backup ke Google Drive...');
+    const data = await gdriveCollectTenantData(ownerId);
+
+    // Buat struktur folder: iFix Pro Backup / {ownerName}
+    const rootId  = await gdriveGetOrCreateFolder(token, 'iFix Pro Backup');
+    const childId = await gdriveGetOrCreateFolder(token, ownerName || ownerId, rootId);
+
+    const date     = new Date();
+    const dateStr  = date.toISOString().slice(0, 10);
+    const timeStr  = date.toTimeString().slice(0, 8).replace(/:/g, '-');
+    const filename = `backup_${ownerName || ownerId}_${dateStr}_${timeStr}.json`;
+
+    const result = await gdriveUploadJSON(token, childId, filename, data);
+    gdriveSaveConfig(ownerId, { lastBackup: new Date().toISOString(), lastFile: filename });
+    if (!silent) console.log('✅ Backup ke Drive selesai:', result.name);
+    return result;
+};
+
+// ─── CEK AUTO-BACKUP SAAT APP LOAD ──────────────────────────
+const gdriveCheckAutoBackup = async (ownerId, ownerName) => {
+    if (!ownerId) return;
+    const cfg = gdriveLoadConfig(ownerId);
+    if (!cfg.autoBackup || !cfg.clientId) return;
+
+    const now        = Date.now();
+    const lastBackup = cfg.lastBackup ? new Date(cfg.lastBackup).getTime() : 0;
+    const scheduleMs = (cfg.schedule === 'weekly' ? 7 : 1) * 24 * 60 * 60 * 1000;
+    if (now - lastBackup < scheduleMs) return;
+
+    console.log(`⏰ Auto-backup ke Google Drive (${cfg.schedule || 'daily'})...`);
+    try {
+        await gdriveDoBackup(ownerId, ownerName, true);
+        console.log('✅ Auto-backup selesai:', new Date().toLocaleString('id-ID'));
+    } catch (e) {
+        console.warn('⚠️ Auto-backup gagal (silent):', e.message);
+    }
 };
 
 // BackupModal untuk Developer (dengan pilihan owner)
@@ -9747,8 +9909,8 @@ const DeveloperDashboard = () => {
                         const statusClass = s.status==='Selesai'?'badge-green':s.status==='Batal'?'badge-red':'badge-yellow';
                         const payStatus   = s.paymentStatus||'Belum Lunas';
                         const payClass    = payStatus==='Lunas'?'badge-green':payStatus==='DP'?'badge-yellow':'badge-red';
-                        const device  = esc(s.unitType||s.deviceType||s.deviceModel||s.deviceBrand||s.device||'-');
-                        const keluhan = esc(s.complaint||s.problem||s.problemDescription||s.keluhan||'-');
+                        const device  = esc(s.deviceModel||s.unitType||s.deviceType||s.deviceBrand||s.device||'-');
+                        const keluhan = esc(s.problem||s.complaint||s.problemDescription||s.keluhan||'-');
                         const cust    = esc(s.customerName||s.customer||'-');
                         const status  = esc(s.status||'-');
                         const dp      = parseFloat(s.downPayment||s.dp)||0;
@@ -10242,7 +10404,7 @@ ${tableHtml}
                         const est = parseFloat(s.costEstimate)||0;
                         const dp  = parseFloat(s.downPayment||s.dp)||0;
                         const sisa= Math.max(0,est-dp);
-                        return '<tr'+(s.paymentStatus!=='Lunas'?' style="background:#fff7ed;"':'')+'><td class="center">'+(i+1)+'</td><td>'+fmtDate(s.createdAt)+'</td><td>'+esc(s.customerName||'-')+'</td><td>'+esc(s.unitType||s.deviceType||s.deviceModel||'-')+'</td><td class="small">'+esc(s.complaint||s.problem||s.problemDescription||'-')+'</td><td class="center"><span class="badge '+sc+'">'+esc(s.status||'-')+'</span></td><td class="num">'+fmt(est)+'</td><td class="num">'+fmt(dp)+'</td><td class="num'+(sisa>0?' text-red':'')+'">'+fmt(sisa)+'</td><td class="center"><span class="badge '+pc+'">'+esc(s.paymentStatus||'Belum Lunas')+'</span></td></tr>';
+                        return '<tr'+(s.paymentStatus!=='Lunas'?' style="background:#fff7ed;"':'')+'><td class="center">'+(i+1)+'</td><td>'+fmtDate(s.createdAt)+'</td><td>'+esc(s.customerName||'-')+'</td><td>'+esc(s.deviceModel||s.unitType||s.deviceType||'-')+'</td><td class="small">'+esc(s.problem||s.complaint||s.problemDescription||'-')+'</td><td class="center"><span class="badge '+sc+'">'+esc(s.status||'-')+'</span></td><td class="num">'+fmt(est)+'</td><td class="num">'+fmt(dp)+'</td><td class="num'+(sisa>0?' text-red':'')+'">'+fmt(sisa)+'</td><td class="center"><span class="badge '+pc+'">'+esc(s.paymentStatus||'Belum Lunas')+'</span></td></tr>';
                     }).join('');
                     const sec3Html = '<div style="padding:24px;">'
                         +pageHeaderHtml
@@ -12127,7 +12289,7 @@ ${tableHtml}
                     // Map to PocketBase field names
                     customerPhone: data.phone || data.customerPhone || '', 
                     deviceModel: data.unitType || data.deviceModel || '',
-                    problem: data.complaint || data.problem || '',
+                    problem: data.complaint || (Array.isArray(data.complaintTags) && data.complaintTags.length > 0 ? data.complaintTags.join(', ') : '') || data.problem || '',
                     deviceSN: data.imei || data.deviceSN || '',
                     warrantyDays: parseInt(data.warranty) || parseInt(data.warrantyDays) || 0,
                     // Standard fields
@@ -12147,6 +12309,7 @@ ${tableHtml}
                 delete payload.warranty;
                 delete payload.device;
                 delete payload.deviceType;
+                delete payload.complaintTags; // tidak ada di schema PocketBase, sudah digabung ke problem
                 
                  try { 
                      if (modal.id) { 
@@ -12777,8 +12940,8 @@ ${tableHtml}
                     `Berikut *Invoice Servis* dari kami:\n` +
                     `━━━━━━━━━━━━━━━━━━\n` +
                     `🆔 *Token:* ${service.token || service.publicToken}\n` +
-                    `📱 *HP:* ${service.unitType || service.deviceModel || service.deviceType || '-'}\n` +
-                    `🔧 *Keluhan:* ${service.complaint || service.problem || '-'}\n` +
+                    `📱 *HP:* ${service.deviceModel || service.unitType || service.deviceType || '-'}\n` +
+                    `🔧 *Keluhan:* ${service.problem || service.complaint || (Array.isArray(service.complaintTags) ? service.complaintTags.join(', ') : '') || '-'}\n` +
                     `⚙️ *Status:* ${service.status}\n` +
                     `💰 *Total Biaya:* ${formatCurrency(total)}\n` +
                     `${payInfo}\n` +
@@ -13489,14 +13652,34 @@ ${tableHtml}
             const [form, setForm] = useState(() => {
                 if (initial.id) {
                     // Edit mode - MAP PocketBase field names TO form field names
-                    // PocketBase: customerPhone, deviceModel, problem, deviceSN, warrantyDays
-                    // Form: phone, unitType, complaint, imei, warranty
                     const baseComplaint = initial.problem || initial.complaint || '';
                     const existingTags = Array.isArray(initial.complaintTags) && initial.complaintTags.length > 0
                         ? initial.complaintTags
                         : (baseComplaint ? baseComplaint.split(/[,;\n]+/).map(s=>s.trim()).filter(Boolean) : []);
+
+                    // Parse qcFunctional jika berupa string JSON
+                    let parsedQC = defaultForm.qcFunctional;
+                    const rawQC = initial.qcFunctional || initial.qcChecklist;
+                    if (rawQC && typeof rawQC === 'object') {
+                        parsedQC = { ...defaultForm.qcFunctional, ...rawQC };
+                    } else if (typeof rawQC === 'string') {
+                        try { parsedQC = { ...defaultForm.qcFunctional, ...JSON.parse(rawQC) }; } catch(e) {}
+                    }
+
+                    // Parse kelengkapan jika berupa string JSON
+                    let parsedKelengkapan = defaultForm.kelengkapan;
+                    const rawKel = initial.kelengkapan;
+                    if (rawKel && typeof rawKel === 'object') {
+                        parsedKelengkapan = { ...defaultForm.kelengkapan, ...rawKel };
+                    } else if (typeof rawKel === 'string') {
+                        try { parsedKelengkapan = { ...defaultForm.kelengkapan, ...JSON.parse(rawKel) }; } catch(e) {}
+                    }
+
                     const normalized = {
-                        ...initial,
+                        ...defaultForm,   // pastikan semua field default tersedia
+                        ...initial,       // timpa dengan data yang ada
+                        // Mapping nama field PocketBase → form
+                        customerName: initial.customerName || initial.customer || '',
                         phone: initial.customerPhone || initial.phone || '',
                         unitType: initial.deviceModel || initial.unitType || initial.device || initial.deviceType || '',
                         complaint: baseComplaint,
@@ -13505,6 +13688,19 @@ ${tableHtml}
                         complaintTags: existingTags,
                         unlockMethod: initial.unlockMethod || 'Tidak Ada',
                         unlockCode: initial.unlockCode || '',
+                        // Pastikan nested object tidak undefined
+                        qcFunctional: parsedQC,
+                        kelengkapan: parsedKelengkapan,
+                        usedParts: Array.isArray(initial.usedParts) ? initial.usedParts : [],
+                        status: initial.status || defaultForm.status,
+                        paymentMethod: initial.paymentMethod || defaultForm.paymentMethod,
+                        paymentStatus: initial.paymentStatus || defaultForm.paymentStatus,
+                        // serviceFee di PocketBase disimpan sebagai costEstimate
+                        serviceFee: initial.costEstimate ?? initial.serviceFee ?? initial.cost ?? 0,
+                        dp: initial.dp ?? 0,
+                        address: initial.address || '',
+                        // Field lain yang mungkin punya nama berbeda
+                        cashAccount: initial.cashAccount || 'Kas Tunai',
                     };
                     return normalized;
                 } else if (initial.customerName) {
@@ -13564,7 +13760,7 @@ ${tableHtml}
             const [saving, setSaving] = useState(false);
             const [customCategories, setCustomCategories] = useState([]);
             const [subCategories, setSubCategories] = useState({});
-            const [cashAccount, setCashAccount] = useState('Kas Tunai');
+            const [cashAccount, setCashAccount] = useState(initial.cashAccount || 'Kas Tunai');
             
             // Fetch inventory dengan server-side filtering untuk kategori
             const { activeStore } = useContext(SessionContext);
@@ -13683,7 +13879,7 @@ ${tableHtml}
             // Close dropdown when clicking outside
             useEffect(() => {
                 const handleClickOutside = (e) => {
-                    if (showPartDropdown && !e.target.closest('.relative')) {
+                    if (showPartDropdown && !e.target.closest('[data-part-dropdown]')) {
                         setShowPartDropdown(false);
                     }
                 };
@@ -13694,7 +13890,20 @@ ${tableHtml}
             const handleSave = async () => {
                 setSaving(true);
                 try {
-                     const dataToSave = {...form, cashAccount};
+                     // Auto-add teks keluhan yang belum di-Enter ke tags
+                     let finalForm = {...form};
+                     if (complaintInput && complaintInput.trim()) {
+                         const pendingTag = complaintInput.trim();
+                         if (!(finalForm.complaintTags||[]).includes(pendingTag)) {
+                             const newTags = [...(finalForm.complaintTags||[]), pendingTag];
+                             finalForm = {...finalForm, complaintTags: newTags, complaint: newTags.join(', ')};
+                         }
+                     }
+                     // Pastikan complaint selalu terisi dari complaintTags jika ada
+                     if (!(finalForm.complaint||'').trim() && (finalForm.complaintTags||[]).length > 0) {
+                         finalForm = {...finalForm, complaint: finalForm.complaintTags.join(', ')};
+                     }
+                     const dataToSave = {...finalForm, cashAccount};
                      await save(dataToSave);
                      close();
                 } catch(e) {
@@ -13788,6 +13997,8 @@ ${tableHtml}
                              </div>
                              <button onClick={close} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-6 h-6 text-slate-400 hover:text-slate-600"/></button>
                         </div>
+
+
                         
                         {/* Riwayat Service Pelanggan */}
                         {!initial.id && serviceHistory.length > 0 && (
@@ -13803,7 +14014,7 @@ ${tableHtml}
                                             className="w-full text-left p-3 bg-white border border-blue-100 rounded-lg hover:bg-blue-100 transition-all flex justify-between items-center"
                                         >
                                             <div>
-                                                <p className="text-xs font-bold text-slate-600">{formatDate(prev.createdAt)} • {prev.unitType}</p>
+                                                <p className="text-xs font-bold text-slate-600">{formatDate(prev.createdAt)} • {prev.deviceModel || prev.unitType || '-'}</p>
                                                 <p className="text-sm text-slate-700 font-medium">Status: {prev.status}</p>
                                             </div>
                                             <Copy className="w-4 h-4 text-blue-500 flex-shrink-0"/>
@@ -14045,7 +14256,7 @@ ${tableHtml}
                                                     const itemKey = item.name.toLowerCase().replace(/\s+/g, '_');
                                                     return (
                                                         <label key={item.id} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-amber-100 cursor-pointer hover:bg-amber-50 transition-colors">
-                                                            <input type="checkbox" checked={form.qcFunctional[itemKey] || false} onChange={(e) => setForm({...form, qcFunctional: {...form.qcFunctional, [itemKey]: e.target.checked}})} className="w-4 h-4 accent-amber-500"/>
+                                                            <input type="checkbox" checked={(form.qcFunctional || {})[itemKey] || false} onChange={(e) => setForm({...form, qcFunctional: {...(form.qcFunctional || {}), [itemKey]: e.target.checked}})} className="w-4 h-4 accent-amber-500"/>
                                                             <span className="text-xs font-medium text-slate-700 flex-1">{item.name}</span>
                                                             <span className="text-[10px] text-slate-400 ml-auto">{item.type === 'master' ? '📦' : '👤'}</span>
                                                         </label>
@@ -14079,7 +14290,7 @@ ${tableHtml}
                                                     const itemKey = item.name.toLowerCase().replace(/\s+/g, '_');
                                                     return (
                                                         <label key={item.id} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-teal-100 cursor-pointer hover:bg-teal-50 transition-colors">
-                                                            <input type="checkbox" checked={form.kelengkapan[itemKey] || false} onChange={(e) => setForm({...form, kelengkapan: {...form.kelengkapan, [itemKey]: e.target.checked}})} className="w-4 h-4 accent-teal-500"/>
+                                                            <input type="checkbox" checked={(form.kelengkapan || {})[itemKey] || false} onChange={(e) => setForm({...form, kelengkapan: {...(form.kelengkapan || {}), [itemKey]: e.target.checked}})} className="w-4 h-4 accent-teal-500"/>
                                                             <span className="text-xs font-medium text-slate-700">{item.name}</span>
                                                             <span className="text-[10px] text-slate-400 ml-auto">{item.type === 'master' ? '📦' : '👤'}</span>
                                                         </label>
@@ -14095,138 +14306,129 @@ ${tableHtml}
                             <div>
                                 <button type="button" onClick={() => setShowParts(!showParts)} className={`w-full py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 border border-dashed transition-all mb-2 ${showParts ? 'bg-red-50 text-red-600 border-red-200' : 'bg-blue-50 text-blue-600 border-blue-300'}`}>{showParts ? <X className="w-3 h-3"/> : <Plus className="w-3 h-3"/>} {showParts ? "Tutup Input Sparepart" : "Tambah Sparepart / Jasa (Klik Disini)"}</button>
                                 {showParts && (
-                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-4 animate-fade-in shadow-inner">
-                                        <div className="bg-blue-50 text-blue-800 text-[10px] p-2 mb-2 rounded border border-blue-200">
-                                            💡 Gunakan tombol <b>+ Sparepart</b> di tabel utama untuk manajemen stok yang lebih akurat.
+                                    <div className="bg-white rounded-xl border border-slate-200 mb-4 shadow-sm">
+                                        {/* Tab Mode */}
+                                        <div className="flex border-b border-slate-200 overflow-hidden rounded-t-xl">
+                                            <button type="button" onClick={()=>setPartMode('stock')} className={`flex-1 py-2.5 text-xs font-bold transition-all ${partMode==='stock'?'bg-blue-600 text-white':'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>📦 Dari Stok</button>
+                                            <button type="button" onClick={()=>setPartMode('manual')} className={`flex-1 py-2.5 text-xs font-bold transition-all ${partMode==='manual'?'bg-blue-600 text-white':'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>✏️ Input Manual</button>
                                         </div>
-                                        <div className="flex gap-2 mb-2 border-b border-slate-200 pb-2">
-                                            <button type="button" onClick={()=>setPartMode('stock')} className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition-all ${partMode==='stock'?'bg-white text-blue-600 shadow-sm border border-blue-100':'text-slate-500 hover:bg-gray-200'}`}>📦 Dari Stok</button>
-                                            <button type="button" onClick={()=>setPartMode('manual')} className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition-all ${partMode==='manual'?'bg-white text-blue-600 shadow-sm border border-blue-100':'text-slate-500 hover:bg-gray-200'}`}>✏️ Manual</button>
-                                        </div>
-                                        <div className="flex gap-2 mb-2">
+
+                                        <div className="p-3 space-y-2">
                                             {partMode === 'manual' ? (
                                                 <>
-                                                    <input className="flex-1 border rounded-lg p-2 text-xs focus:outline-blue-500" placeholder="Nama Barang" value={manualPart.name} onChange={e=>setManualPart({...manualPart, name:e.target.value})}/>
-                                                    <NumberInput className="w-24 border rounded-lg p-2 text-xs focus:outline-blue-500 font-bold" placeholder="Harga" value={manualPart.price} onChange={val=>setManualPart({...manualPart, price:val})} onFocus={e => e.target.select()}/>
+                                                    <input className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 bg-slate-50" placeholder="Nama barang / jasa..." value={manualPart.name} onChange={e=>setManualPart({...manualPart, name:e.target.value})}/>
+                                                    <div className="flex gap-2">
+                                                        <NumberInput className="flex-1 border border-slate-300 rounded-lg px-3 py-2.5 text-sm font-bold focus:outline-none focus:border-blue-500 bg-slate-50" placeholder="Harga jual (Rp)" value={manualPart.price} onChange={val=>setManualPart({...manualPart, price:val})} onFocus={e => e.target.select()}/>
+                                                        <button type="button" onClick={addPart} disabled={!manualPart.name || !manualPart.price} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0 shadow"><Plus className="w-4 h-4"/>Tambah</button>
+                                                    </div>
                                                 </>
                                             ) : (
                                                 <>
-                                                    {/* Category Selector */}
+                                                    {/* Kategori */}
                                                     {inventoryCategories.length > 0 && (
-                                                        <select 
-                                                            className="w-28 border border-blue-300 rounded-lg p-2 text-xs bg-white focus:outline-blue-500 font-bold" 
-                                                            value={selectedCategory} 
-                                                            onChange={e => {
-                                                                setSelectedCategory(e.target.value);
-                                                                setSelectedSubCategory('');
-                                                                setPart('');
-                                                                setSearchPartTerm('');
-                                                            }}
+                                                        <select
+                                                            className="w-full border border-blue-200 rounded-lg px-3 py-2.5 text-sm bg-blue-50 text-blue-800 font-semibold focus:outline-none focus:border-blue-500"
+                                                            value={selectedCategory}
+                                                            onChange={e => { setSelectedCategory(e.target.value); setSelectedSubCategory(''); setPart(''); setSearchPartTerm(''); }}
                                                         >
-                                                            <option value="">📁 Kategori</option>
-                                                            {inventoryCategories.map(cat => (
-                                                                <option key={cat} value={cat}>{cat}</option>
-                                                            ))}
+                                                            <option value="">📁 Semua Kategori</option>
+                                                            {inventoryCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                                         </select>
                                                     )}
-                                                    
-                                                    {/* Sub Category Selector */}
+
+                                                    {/* Sub Kategori — hanya tampil jika ada */}
                                                     {availableSubCategories.length > 0 && (
-                                                        <select 
-                                                            className="w-28 border border-cyan-300 rounded-lg p-2 text-xs bg-white focus:outline-cyan-500 font-bold" 
-                                                            value={selectedSubCategory} 
-                                                            onChange={e => {
-                                                                setSelectedSubCategory(e.target.value);
-                                                                setPart('');
-                                                                setSearchPartTerm('');
-                                                            }}
+                                                        <select
+                                                            className="w-full border border-cyan-200 rounded-lg px-3 py-2.5 text-sm bg-cyan-50 text-cyan-800 font-semibold focus:outline-none focus:border-cyan-500"
+                                                            value={selectedSubCategory}
+                                                            onChange={e => { setSelectedSubCategory(e.target.value); setPart(''); setSearchPartTerm(''); }}
                                                         >
-                                                            <option value="">📂 Sub</option>
-                                                            {availableSubCategories.map(subCat => (
-                                                                <option key={subCat} value={subCat}>{subCat}</option>
-                                                            ))}
+                                                            <option value="">📂 Semua Sub-Kategori</option>
+                                                            {availableSubCategories.map(s => <option key={s} value={s}>{s}</option>)}
                                                         </select>
                                                     )}
-                                                    
-                                                    {/* Searchable Item Selector */}
-                                                    <div className="flex-1 relative">
-                                                        <input 
-                                                            type="text"
-                                                            className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white focus:outline-blue-500 focus:border-blue-500"
-                                                            placeholder="🔍 Ketik atau klik untuk pilih barang..."
-                                                            value={searchPartTerm}
-                                                            onChange={e => {
-                                                                setSearchPartTerm(e.target.value);
-                                                                setShowPartDropdown(true);
-                                                                setPart(''); // Reset selection saat mengetik
-                                                            }}
-                                                            onFocus={() => setShowPartDropdown(true)}
-                                                        />
-                                                        
-                                                        {/* Dropdown Results - Show all filtered items or search results */}
-                                                        {showPartDropdown && filteredInventory.length > 0 && (
-                                                            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                                                                {/* Show count info */}
-                                                                <div className="sticky top-0 bg-slate-50 px-3 py-1.5 border-b border-slate-200 text-[10px] text-slate-600 font-bold">
-                                                                    {searchPartTerm 
-                                                                        ? `${filteredInventory.length} hasil pencarian` 
-                                                                        : `${filteredInventory.length} barang tersedia`
-                                                                    }
-                                                                </div>
-                                                                
-                                                                {/* Items list */}
-                                                                {filteredInventory.slice(0, 50).map(item => (
-                                                                    <div 
-                                                                        key={item.id}
-                                                                        className="p-2 hover:bg-blue-50 cursor-pointer border-b border-slate-100 last:border-0 transition-colors"
-                                                                        onClick={() => {
-                                                                            setPart(item.id);
-                                                                            setSearchPartTerm(item.name);
-                                                                            setShowPartDropdown(false);
-                                                                        }}
-                                                                    >
-                                                                        <div className="flex justify-between items-center">
-                                                                            <span className="text-xs font-medium text-slate-700">{item.name}</span>
-                                                                            <span className="text-xs font-bold text-blue-600">{formatCurrency(item.sellPrice)}</span>
-                                                                        </div>
-                                                                        <div className="flex gap-2 mt-0.5">
-                                                                            {item.category && <span className="text-[10px] text-slate-500">📁 {item.category}</span>}
-                                                                            {item.subCategory && <span className="text-[10px] text-cyan-600">📂 {item.subCategory}</span>}
-                                                                            <span className="text-[10px] text-slate-400">Stok: {item.stock || 0}</span>
-                                                                        </div>
+
+                                                    {/* Search + Tombol Tambah */}
+                                                    <div className="flex gap-2 items-start">
+                                                        <div className="flex-1 relative" data-part-dropdown>
+                                                            <input
+                                                                type="text"
+                                                                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-blue-500 pr-8"
+                                                                placeholder={selectedCategory ? `🔍 Cari di ${selectedCategory}...` : '🔍 Cari nama barang...'}
+                                                                value={searchPartTerm}
+                                                                onChange={e => { setSearchPartTerm(e.target.value); setShowPartDropdown(true); setPart(''); }}
+                                                                onFocus={() => setShowPartDropdown(true)}
+                                                            />
+                                                            {searchPartTerm && (
+                                                                <button type="button" onClick={() => { setSearchPartTerm(''); setPart(''); setShowPartDropdown(false); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5"/></button>
+                                                            )}
+                                                            {/* Dropdown */}
+                                                            {showPartDropdown && (
+                                                                <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden" style={{maxHeight:'260px',overflowY:'auto'}}>
+                                                                    <div className="sticky top-0 bg-slate-50 px-3 py-2 border-b border-slate-100 flex justify-between items-center">
+                                                                        <span className="text-[10px] font-bold text-slate-500">
+                                                                            {filteredInventory.length > 0 ? `${filteredInventory.length} barang` : 'Tidak ada barang'}
+                                                                        </span>
+                                                                        <button type="button" onClick={() => setShowPartDropdown(false)} className="text-[10px] text-slate-400 hover:text-slate-600 font-bold">Tutup ✕</button>
                                                                     </div>
-                                                                ))}
-                                                                
-                                                                {/* Show "type to search" hint if no search term and many items */}
-                                                                {!searchPartTerm && filteredInventory.length > 50 && (
-                                                                    <div className="p-3 text-center bg-blue-50 text-blue-600 text-[10px]">
-                                                                        💡 Menampilkan 50 dari {filteredInventory.length} barang. Ketik untuk mencari lebih spesifik.
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                        
-                                                        {/* Empty state */}
-                                                        {showPartDropdown && filteredInventory.length === 0 && (
-                                                            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg p-4 text-center">
-                                                                <div className="text-slate-400 text-xs">
-                                                                    {searchPartTerm ? '🔍 Tidak ada barang yang cocok' : '📦 Tidak ada barang di kategori ini'}
+                                                                    {filteredInventory.length === 0 ? (
+                                                                        <div className="p-4 text-center text-slate-400 text-xs">
+                                                                            {searchPartTerm ? '🔍 Tidak ada barang cocok' : '📦 Tidak ada barang di kategori ini'}
+                                                                        </div>
+                                                                    ) : (
+                                                                        filteredInventory.slice(0, 50).map(item => (
+                                                                            <div key={item.id}
+                                                                                className="px-3 py-2.5 hover:bg-blue-50 active:bg-blue-100 cursor-pointer border-b border-slate-50 last:border-0"
+                                                                                onClick={() => { setPart(item.id); setSearchPartTerm(item.name); setShowPartDropdown(false); }}
+                                                                            >
+                                                                                <div className="flex justify-between items-center gap-2">
+                                                                                    <span className="text-sm font-semibold text-slate-800 flex-1 truncate">{item.name}</span>
+                                                                                    <span className="text-sm font-bold text-blue-600 shrink-0">{formatCurrency(item.sellPrice)}</span>
+                                                                                </div>
+                                                                                <div className="flex gap-2 mt-0.5">
+                                                                                    {item.category && <span className="text-[10px] text-slate-400">📁{item.category}</span>}
+                                                                                    <span className="text-[10px] text-slate-400">Stok: <b>{item.stock || 0}</b></span>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))
+                                                                    )}
+                                                                    {!searchPartTerm && filteredInventory.length > 50 && (
+                                                                        <div className="p-2 text-center text-[10px] text-blue-600 bg-blue-50 border-t">Ketik untuk cari lebih spesifik ({filteredInventory.length} total)</div>
+                                                                    )}
                                                                 </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    
-                                                    {selectedPart && (
-                                                        <div className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold border border-blue-200 whitespace-nowrap flex items-center">
-                                                            {formatCurrency(inventory.find(i => i.id === selectedPart)?.sellPrice || 0)}
+                                                            )}
                                                         </div>
-                                                    )}
+                                                        <button type="button" onClick={addPart} disabled={!selectedPart} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 shrink-0 shadow"><Plus className="w-4 h-4"/>Tambah</button>
+                                                    </div>
+
+                                                    {/* Konfirmasi item terpilih */}
+                                                    {selectedPart && (() => { const it = inventory.find(i => i.id === selectedPart); return it ? (
+                                                        <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                                                            <div>
+                                                                <p className="text-xs font-bold text-blue-800">{it.name}</p>
+                                                                <p className="text-[10px] text-blue-600">Harga: {formatCurrency(it.sellPrice)} · Stok: {it.stock || 0}</p>
+                                                            </div>
+                                                            <button type="button" onClick={() => { setPart(''); setSearchPartTerm(''); }} className="text-blue-400 hover:text-blue-600"><X className="w-4 h-4"/></button>
+                                                        </div>
+                                                    ) : null; })()}
                                                 </>
                                             )}
-                                            <button type="button" onClick={addPart} className="bg-blue-600 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-700 shadow-sm"><Plus className="w-4 h-4"/></button>
                                         </div>
-                                        <div className="space-y-3 mb-6 text-sm">
-                            {(form.usedParts||[]).map((p,i)=>(<div key={i} className="flex justify-between items-center text-xs bg-white p-1.5 rounded border border-slate-200 shadow-sm"><span className="font-medium text-slate-700">{p.name}</span><div className="flex items-center gap-2"><span className="font-bold text-slate-600">{formatCurrency(p.sellPrice)} x {p.qty} = {formatCurrency(p.sellPrice * p.qty)}</span><button type="button" onClick={()=>removePart(i)} className="text-red-400 hover:text-red-600 bg-red-50 p-0.5 rounded"><X className="w-3 h-3"/></button></div></div>))}</div>
+
+                                        {/* Daftar Part yang Sudah Ditambah */}
+                                        {(form.usedParts||[]).length > 0 && (
+                                            <div className="border-t border-slate-100 p-3 space-y-1.5">
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Part/Jasa Ditambahkan ({(form.usedParts||[]).length})</p>
+                                                {(form.usedParts||[]).map((p,i) => (
+                                                    <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+                                                        <span className="flex-1 text-xs font-semibold text-slate-700 truncate">{p.name}</span>
+                                                        <span className="text-xs text-slate-500 shrink-0">{formatCurrency(p.sellPrice)} × {p.qty}</span>
+                                                        <span className="text-xs font-bold text-blue-600 shrink-0">{formatCurrency(p.sellPrice * p.qty)}</span>
+                                                        <button type="button" onClick={()=>removePart(i)} className="text-red-400 hover:text-red-600 shrink-0 p-0.5 rounded hover:bg-red-50"><X className="w-3.5 h-3.5"/></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -15744,25 +15946,38 @@ ${tableHtml}
 
             const handleSaveCustomer = async (data) => {
                 try {
-                    if (modal.id && modal.dbRecord !== false) {
-                        // Pelanggan dari DB (Firestore) → update
+                    if (!activeOwner?.id) { alert('⚠️ Tidak ada owner aktif!'); return; }
+                    const storeIdToUse = activeStore?.id || '';
+                    
+                    if (modal.id && modal.dbRecord) {
+                        // Pelanggan dari DB → update langsung
                         await updateDoc(doc(db, APP_COLLECTION_PREFIX, 'public', 'customers', modal.id), data);
                         setModal(null);
-                        alert('Pelanggan diperbarui');
-                    } else {
-                        // Pelanggan baru ATAU berasal dari transaksi (non-DB, id=svc_/sale_)
-                        // → buat record baru di customers collection
+                        alert('✅ Pelanggan diperbarui');
+                    } else if (modal.id && (modal.id.startsWith('svc_') || modal.id.startsWith('sale_'))) {
+                        // Pelanggan dari transaksi (belum ada di DB) → buat record baru
                         await addDoc(collection(db, APP_COLLECTION_PREFIX, 'public', 'customers'), {
                             ...data,
                             ownerId: activeOwner.id,
-                            storeId: activeStore.id,
+                            storeId: storeIdToUse,
                             createdAt: serverTimestamp()
                         });
                         setModal(null);
-                        alert('Pelanggan ditambahkan');
+                        alert('✅ Pelanggan berhasil disimpan ke database');
+                    } else {
+                        // Pelanggan baru
+                        await addDoc(collection(db, APP_COLLECTION_PREFIX, 'public', 'customers'), {
+                            ...data,
+                            ownerId: activeOwner.id,
+                            storeId: storeIdToUse,
+                            createdAt: serverTimestamp()
+                        });
+                        setModal(null);
+                        alert('✅ Pelanggan ditambahkan');
                     }
                 } catch (err) {
-                    alert("Gagal simpan: " + err.message);
+                    console.error('Save customer error:', err);
+                    alert('❌ Gagal simpan: ' + err.message);
                 }
             };
 
@@ -16018,8 +16233,11 @@ ${tableHtml}
                     }
                 });
                 
-                // 🔹 Filter: Hanya tampilkan pelanggan yang punya transaksi service
-                return items.filter(c => c.serviceCount > 0);
+                // 🔹 Filter: Tampilkan pelanggan yang punya transaksi service, ATAU diinput manual dengan customerType service/kosong
+                const result2 = items.filter(c => c.serviceCount > 0 || (c.dbRecord && !c.deleted && (!c.customerType || c.customerType === 'service')));
+                // Sort by serviceCount descending (pelanggan paling sering servis paling atas)
+                result2.sort((a, b) => (b.serviceCount || 0) - (a.serviceCount || 0));
+                return result2;
             }, [serviceCustomers, customers, services]);
 
             const mergedSalesCustomers = useMemo(() => {
@@ -16094,8 +16312,11 @@ ${tableHtml}
                     }
                 });
                 
-                // 🔹 Filter: Hanya tampilkan pelanggan yang punya transaksi penjualan
-                return items.filter(c => c.salesCount > 0);
+                // 🔹 Filter: Tampilkan pelanggan yang punya transaksi penjualan, ATAU diinput manual dengan customerType sales
+                const result2 = items.filter(c => c.salesCount > 0 || (c.dbRecord && !c.deleted && c.customerType === 'sales'));
+                // Sort by salesCount descending (pelanggan paling sering beli paling atas)
+                result2.sort((a, b) => (b.salesCount || 0) - (a.salesCount || 0));
+                return result2;
             }, [salesCustomers, customers, services]);
 
             // Select active customer list based on tab
@@ -16146,14 +16367,133 @@ ${tableHtml}
                 setCurrentPage(1);
             };
 
+            const exportCustomerPDF = async () => {
+                // Load jsPDF + autoTable dari CDN jika belum ada
+                if (!window.jspdf) {
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                        s.onload = resolve; s.onerror = reject;
+                        document.head.appendChild(s);
+                    });
+                }
+                if (!window.jspdf?.jsPDF?.API?.autoTable) {
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+                        s.onload = resolve; s.onerror = reject;
+                        document.head.appendChild(s);
+                    });
+                }
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+                const dataToExport = customerTab === 'service' ? mergedServiceCustomers : mergedSalesCustomers;
+                const visible = dataToExport.filter(c => !c.deleted && !hiddenCustomers.includes(c.id));
+                // Prioritaskan nama & logo dari profil toko (activeStore), bukan owner
+                const storeName    = activeStore?.name    || activeOwner?.storeName || activeOwner?.name || 'Toko';
+                const storeAddress = activeStore?.address || activeOwner?.address   || '';
+                const storePhone   = activeStore?.phone   || activeOwner?.phone     || '';
+                const storeLogo    = activeStore?.logo    || '';
+                const tabLabel = customerTab === 'service' ? 'Pelanggan Service' : 'Pelanggan Penjualan';
+                const now = new Date().toLocaleString('id-ID');
+                const pageW = doc.internal.pageSize.getWidth();
+
+                // Header background (tinggi 38 agar logo muat)
+                const headerH = 38;
+                doc.setFillColor(29, 78, 216);
+                doc.rect(0, 0, pageW, headerH, 'F');
+
+                // Logo toko (jika ada, tampilkan di sisi kiri header)
+                const logoSize = 26;
+                const logoX    = 10;
+                const logoY    = 6;
+                let textX      = 14;
+
+                if (storeLogo) {
+                    try {
+                        const imgFmt = storeLogo.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+                        doc.addImage(storeLogo, imgFmt, logoX, logoY, logoSize, logoSize);
+                        textX = logoX + logoSize + 4; // teks mulai setelah logo
+                    } catch (e) {
+                        console.warn('⚠️ Logo gagal ditambahkan ke PDF:', e.message);
+                        textX = 14;
+                    }
+                }
+
+                // Nama toko
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(15);
+                doc.setFont('helvetica', 'bold');
+                doc.text(storeName, textX, 14);
+
+                // Alamat & telp
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'normal');
+                if (storeAddress) doc.text(storeAddress.substring(0, 70), textX, 22);
+                if (storePhone) doc.text('Tel: ' + storePhone, textX, 29);
+
+                // Sub-judul kanan
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Data ' + tabLabel, pageW - 14, 14, { align: 'right' });
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7.5);
+                doc.text('Total: ' + visible.length + ' pelanggan', pageW - 14, 22, { align: 'right' });
+                doc.text('Dicetak: ' + now, pageW - 14, 29, { align: 'right' });
+
+                // Garis pembatas
+                doc.setDrawColor(99, 102, 241);
+                doc.setLineWidth(0.8);
+                doc.line(0, headerH, pageW, headerH);
+
+                // Tabel data
+                const head = customerTab === 'service'
+                    ? [['#', 'Nama', 'Alamat', 'No HP / WA', 'Type HP', 'Jml Service']]
+                    : [['#', 'Nama', 'Alamat', 'No HP / WA', 'Jml Transaksi', 'Total Belanja']];
+
+                const body = visible.map((c, i) => customerTab === 'service'
+                    ? [i + 1, c.name || '-', c.address || '-', c.phone || '-', c.phoneType || '-', (c.serviceCount || 0) + 'x']
+                    : [i + 1, c.name || '-', c.address || '-', c.phone || '-', (c.salesCount || 0) + 'x', 'Rp' + (c.totalSpent || 0).toLocaleString('id-ID')]
+                );
+
+                doc.autoTable({
+                    head,
+                    body,
+                    startY: headerH + 4,
+                    margin: { left: 14, right: 14 },
+                    styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
+                    headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+                    alternateRowStyles: { fillColor: [248, 250, 252] },
+                    columnStyles: {
+                        0: { halign: 'center', cellWidth: 8 },
+                        1: { fontStyle: 'bold', cellWidth: customerTab === 'service' ? 38 : 42 },
+                        5: { halign: 'center' },
+                    },
+                    didDrawPage: (data) => {
+                        // Footer tiap halaman
+                        const pageCount = doc.internal.getNumberOfPages();
+                        doc.setFontSize(7);
+                        doc.setTextColor(148, 163, 184);
+                        doc.text(storeName, 14, doc.internal.pageSize.getHeight() - 8);
+                        doc.text('Hal ' + data.pageNumber + ' / ' + pageCount, pageW - 14, doc.internal.pageSize.getHeight() - 8, { align: 'right' });
+                    }
+                });
+
+                const filename = `Pelanggan_${tabLabel.replace(/ /g,'_')}_${new Date().toISOString().slice(0,10)}.pdf`;
+                doc.save(filename);
+            };
+
             return (
-                <div className="space-y-6">
-                    <div className="flex justify-between items-center gap-4">
-                        <h2 className="font-bold text-2xl">Daftar Pelanggan</h2>
-                        <div className="flex gap-2">
-                            <button onClick={syncFromServices} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-purple-700 flex items-center gap-2"><RefreshCw className="w-4 h-4" /> Sinkronisasi</button>
-                            <button onClick={() => setDeleteAllModal(true)} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-700 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Hapus Semua</button>
-                            <button onClick={() => setModal({})} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg hover:bg-blue-700"><Plus className="w-5 h-5" /> Pelanggan Baru</button>
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center gap-3">
+                        <h2 className="font-bold text-xl md:text-2xl">Daftar Pelanggan</h2>
+                        <div className="flex gap-2 flex-wrap justify-end">
+                            <button onClick={exportCustomerPDF} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-emerald-700 flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Export</span> PDF</button>
+                            <button onClick={syncFromServices} className="bg-purple-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Sinkronisasi</span></button>
+                            <button onClick={() => setDeleteAllModal(true)} className="bg-red-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-700 flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Hapus Semua</span></button>
+                            <button onClick={() => setModal({})} className="bg-blue-600 text-white px-3 py-2 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-lg hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Pelanggan Baru</span><span className="sm:hidden">Tambah</span></button>
                         </div>
                     </div>
 
@@ -16209,14 +16549,15 @@ ${tableHtml}
                         )}
                     </div>
 
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mobile-card-wrapper">
-                        <div className="overflow-x-auto">
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        {/* DESKTOP TABLE */}
+                        <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 border-b text-slate-600 font-bold uppercase text-xs">
                                     <tr>
                                         <th className="p-4">Nama & Alamat</th>
                                         <th className="p-4">No WA</th>
-                                        <th className="p-4">{customerTab === 'service' ? 'Type HP' : 'Jml Transaksi'}</th>
+                        <th className="p-4">{customerTab === 'service' ? 'Type HP' : 'Jml Transaksi'}</th>
                                         <th className="p-4">{customerTab === 'service' ? 'Jml Service' : 'Total Belanja'}</th>
                                         <th className="p-4 text-center">Aksi</th>
                                     </tr>
@@ -16225,51 +16566,24 @@ ${tableHtml}
                                     {paginatedCustomers.map(c => (
                                         <tr key={c.id} className="hover:bg-slate-50">
                                             <td className="p-4">
-                                                <div className="flex flex-col">
-                                                    <button 
-                                                        onClick={() => createServiceFromCustomer(c)}
-                                                        className="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition text-left"
-                                                        title="Klik untuk buat service baru"
-                                                    >
-                                                        {c.name}
-                                                    </button>
-                                                    {c.address && (
-                                                        <span className="text-xs text-slate-500 mt-1">
-                                                            📍 {c.address}
-                                                        </span>
-                                                    )}
+                                                <button onClick={() => createServiceFromCustomer(c)} className="font-bold text-blue-600 hover:text-blue-800 hover:underline text-left block">{c.name}</button>
+                                                {c.address && <span className="text-xs text-slate-400 mt-0.5 block">📍 {c.address}</span>}
+                                            </td>
+                                            <td className="p-4 text-slate-600 text-sm">{c.phone ? <span className="flex items-center gap-1"><span className="text-green-600">●</span>{c.phone}</span> : <span className="text-slate-300">-</span>}</td>
+                                            <td className="p-4 text-slate-500 text-xs">{customerTab === 'service' ? (c.phoneType || '-') : <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-bold">{c.salesCount || 0}x</span>}</td>
+                                            <td className="p-4 text-slate-500 text-xs">
+                                                {customerTab === 'service' ? (() => {
+                                                    const n = c.serviceCount || 0;
+                                                    const tier = n >= 10 ? {label:'VIP 👑', cls:'bg-yellow-100 text-yellow-700'} : n >= 5 ? {label:'Setia ⭐', cls:'bg-purple-100 text-purple-700'} : n >= 2 ? {label:'Reguler', cls:'bg-blue-100 text-blue-700'} : {label:'Baru', cls:'bg-slate-100 text-slate-600'};
+                                                    return <span className={`${tier.cls} px-2 py-1 rounded-full text-xs font-bold`}>{n}x {tier.label}</span>;
+                                                })() : <span className="font-bold text-green-600">{formatCurrency(c.totalSpent || 0)}</span>}
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                <div className="flex justify-center gap-1">
+                                                    <button onClick={() => setHistoryModal(c)} className="text-purple-500 hover:bg-purple-50 p-2 rounded-lg" title="Riwayat"><History className="w-4 h-4" /></button>
+                                                    <button onClick={() => setModal(c)} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg" title="Edit"><Pencil className="w-4 h-4" /></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); confirmDeleteCustomer(c); }} className="text-red-500 hover:bg-red-50 p-2 rounded-lg" title="Hapus"><Trash2 className="w-4 h-4" /></button>
                                                 </div>
-                                            </td>
-                                            <td className="p-4 text-slate-600">
-                                <div className="flex items-center gap-1">
-                                    {c.phone ? (
-                                        <>
-                                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.549 4.14 1.595 5.945L0 24l6.335-1.652a11.952 11.952 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.905 3.686" fill="#25D366"/>
-                                            </svg>
-                                            {c.phone}
-                                        </>
-                                    ) : (
-                                        '-'
-                                    )}
-                                </div>
-                            </td>
-                                            <td className="p-4 text-slate-500 text-xs">
-                                                {customerTab === 'service' 
-                                                    ? (c.phoneType || '-')
-                                                    : <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-bold">{c.salesCount || 0}x</span>
-                                                }
-                                            </td>
-                                            <td className="p-4 text-slate-500 text-xs">
-                                                {customerTab === 'service'
-                                                    ? <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs font-bold">{c.serviceCount || 0}x</span>
-                                                    : <span className="font-bold text-green-600">{formatCurrency(c.totalSpent || 0)}</span>
-                                                }
-                                            </td>
-                                            <td className="p-4 text-center flex justify-center gap-2">
-                                                <button onClick={() => setHistoryModal(c)} className="text-purple-500 hover:bg-purple-50 p-2 rounded" title={customerTab === 'service' ? 'Lihat riwayat service' : 'Lihat riwayat pembelian'}><History className="w-4 h-4" /></button>
-                                                <button onClick={() => setModal(c)} className="text-blue-500 hover:bg-blue-50 p-2 rounded" title="Edit pelanggan"><Pencil className="w-4 h-4" /></button>
-                                                <button onClick={(e) => { e.stopPropagation(); confirmDeleteCustomer(c); }} className="text-red-500 hover:bg-red-50 p-2 rounded" title="Hapus pelanggan"><Trash2 className="w-4 h-4" /></button>
                                             </td>
                                         </tr>
                                     ))}
@@ -16277,70 +16591,63 @@ ${tableHtml}
                             </table>
                             {paginatedCustomers.length === 0 && <div className="p-8 text-center text-slate-400">{customerTab === 'service' ? 'Tidak ada pelanggan service.' : 'Tidak ada pelanggan penjualan.'}</div>}
                         </div>
-                        
-                        {/* Mobile Card View */}
-                        <div className="mobile-card-stack" style={{display: 'none'}}>
+
+                        {/* MOBILE CARDS */}
+                        <div className="md:hidden divide-y divide-slate-100">
+                            {paginatedCustomers.length === 0 && (
+                                <div className="p-8 text-center text-slate-400">{customerTab === 'service' ? 'Tidak ada pelanggan service.' : 'Tidak ada pelanggan penjualan.'}</div>
+                            )}
                             {paginatedCustomers.map(c => (
-                                <div key={c.id} className="mobile-card">
-                                    <div className="mobile-card-row">
-                                        <span className="mobile-card-label">Nama</span>
-                                        <span className="mobile-card-value">
-                                            <button onClick={() => createServiceFromCustomer(c)} className="font-bold text-blue-600 hover:text-blue-800 hover:underline text-sm">
+                                <div key={c.id} className="p-4">
+                                    {/* Baris atas: nama + badge service count */}
+                                    <div className="flex items-start justify-between gap-2 mb-2">
+                                        <div className="flex-1 min-w-0">
+                                            <button onClick={() => createServiceFromCustomer(c)} className="font-bold text-blue-600 text-base text-left leading-tight hover:underline truncate block max-w-full">
                                                 {c.name}
                                             </button>
-                                        </span>
-                                    </div>
-                                    {c.address && (
-                                        <div className="mobile-card-row">
-                                            <span className="mobile-card-label">Alamat</span>
-                                            <span className="mobile-card-value text-xs">📍 {c.address}</span>
+                                            {c.address && <p className="text-xs text-slate-400 mt-0.5 truncate">📍 {c.address}</p>}
                                         </div>
-                                    )}
-                                    <div className="mobile-card-row">
-                                        <span className="mobile-card-label">WhatsApp</span>
-                                        <span className="mobile-card-value text-xs flex items-center gap-1">
-                                            {c.phone ? (
-                                                <>
-                                                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.549 4.14 1.595 5.945L0 24l6.335-1.652a11.952 11.952 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.905 3.686" fill="#25D366"/>
-                                                    </svg>
-                                                    {c.phone}
-                                                </>
-                                            ) : '-'}
-                                        </span>
+                                        <div className="flex-shrink-0">
+                                            {customerTab === 'service' ? (() => {
+                                                const n = c.serviceCount || 0;
+                                                const tier = n >= 10 ? {label:`${n}x 👑 VIP`, cls:'bg-yellow-100 text-yellow-700 border-yellow-300'} : n >= 5 ? {label:`${n}x ⭐ Setia`, cls:'bg-purple-100 text-purple-700 border-purple-300'} : n >= 2 ? {label:`${n}x Reguler`, cls:'bg-blue-100 text-blue-700 border-blue-300'} : n === 1 ? {label:`${n}x Baru`, cls:'bg-slate-100 text-slate-600 border-slate-300'} : {label:'Belum Servis', cls:'bg-slate-50 text-slate-400 border-slate-200'};
+                                                return <span className={`border px-2.5 py-1 rounded-full text-xs font-black ${tier.cls}`}>{tier.label}</span>;
+                                            })() : <span className="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-xs font-black">{c.salesCount || 0}x transaksi</span>}
+                                        </div>
                                     </div>
-                                    <div className="mobile-card-row">
-                                        <span className="mobile-card-label">{customerTab === 'service' ? 'Type HP' : 'Transaksi'}</span>
-                                        <span className="mobile-card-value">
-                                            {customerTab === 'service' 
-                                                ? (c.phoneType || '-')
-                                                : <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-bold">{c.salesCount || 0}x</span>
-                                            }
-                                        </span>
+                                    {/* Baris tengah: No WA + Type HP */}
+                                    <div className="flex items-center gap-3 mb-3">
+                                        {c.phone
+                                            ? <a href={`https://wa.me/${c.phone.replace(/\D/g,'')}`} target="_blank" className="flex items-center gap-1.5 text-sm text-green-700 font-semibold bg-green-50 border border-green-200 px-3 py-1.5 rounded-lg">
+                                                <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.549 4.14 1.595 5.945L0 24l6.335-1.652a11.952 11.952 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.905 3.686" fill="#25D366"/></svg>
+                                                {c.phone}
+                                              </a>
+                                            : <span className="text-xs text-slate-400 italic">Tidak ada no. HP</span>
+                                        }
+                                        {customerTab === 'service' && c.phoneType && (
+                                            <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1.5 rounded-lg font-medium truncate max-w-[120px]">📱 {c.phoneType}</span>
+                                        )}
+                                        {customerTab === 'sales' && (
+                                            <span className="text-sm font-bold text-green-600">{formatCurrency(c.totalSpent || 0)}</span>
+                                        )}
                                     </div>
-                                    <div className="mobile-card-row">
-                                        <span className="mobile-card-label">{customerTab === 'service' ? 'Service' : 'Total Belanja'}</span>
-                                        <span className="mobile-card-value">
-                                            {customerTab === 'service'
-                                                ? <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs font-bold">{c.serviceCount || 0}x</span>
-                                                : <span className="font-bold text-green-600 text-sm">{formatCurrency(c.totalSpent || 0)}</span>
-                                            }
-                                        </span>
-                                    </div>
-                                    <div className="mobile-card-actions">
-                                        <button onClick={() => setHistoryModal(c)} className="flex-1 bg-purple-50 text-purple-600 px-3 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1">
-                                            <History className="w-3 h-3"/> Riwayat
+                                    {/* Baris bawah: Tombol aksi */}
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setHistoryModal(c)} className="flex-1 bg-purple-50 text-purple-700 border border-purple-200 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-transform">
+                                            <History className="w-3.5 h-3.5"/> Riwayat
                                         </button>
-                                        <button onClick={() => setModal(c)} className="flex-1 bg-blue-50 text-blue-600 px-3 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1">
-                                            <Pencil className="w-3 h-3"/> Edit
+                                        <button onClick={() => setModal(c)} className="flex-1 bg-blue-50 text-blue-700 border border-blue-200 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-transform">
+                                            <Pencil className="w-3.5 h-3.5"/> Edit
                                         </button>
-                                        <button onClick={(e) => { e.stopPropagation(); confirmDeleteCustomer(c); }} className="bg-red-50 text-red-600 px-3 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1">
-                                            <Trash2 className="w-3 h-3"/> Hapus
+                                        <button onClick={() => createServiceFromCustomer(c)} className="flex-1 bg-green-50 text-green-700 border border-green-200 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-transform">
+                                            <Plus className="w-3.5 h-3.5"/> Servis
+                                        </button>
+                                        <button onClick={(e) => { e.stopPropagation(); confirmDeleteCustomer(c); }} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-xl font-bold text-xs flex items-center justify-center active:scale-95 transition-transform">
+                                            <Trash2 className="w-3.5 h-3.5"/>
                                         </button>
                                     </div>
                                 </div>
                             ))}
-                            {paginatedCustomers.length === 0 && <div className="p-8 text-center text-slate-400">{customerTab === 'service' ? 'Tidak ada pelanggan service.' : 'Tidak ada pelanggan penjualan.'}</div>}
                         </div>
                     </div>
                     
@@ -16453,7 +16760,7 @@ ${tableHtml}
                                                     <div className="flex justify-between items-start gap-4">
                                                         <div className="flex-1">
                                                             <div className="flex items-center gap-3 mb-2">
-                                                                <span className="font-bold text-slate-800">{svc.unitType || 'Service'}</span>
+                                                                <span className="font-bold text-slate-800">{svc.deviceModel || svc.unitType || 'Service'}</span>
                                                                 <span className={`text-xs font-bold px-2 py-1 rounded-full ${
                                                                     svc.status === 'Selesai' ? 'bg-green-100 text-green-700' :
                                                                     svc.status === 'Dikerjakan' ? 'bg-blue-100 text-blue-700' :
@@ -16462,8 +16769,8 @@ ${tableHtml}
                                                                     'bg-yellow-100 text-yellow-700'
                                                                 }`}>{svc.status || 'Antri'}</span>
                                                             </div>
-                                                            <p className="text-sm text-slate-600 mb-1">🔧 {svc.complaint || 'Tidak ada keluhan'}</p>
-                                                            <p className="text-xs text-slate-500">📱 IMEI: {svc.imei || '-'}</p>
+                                                            <p className="text-sm text-slate-600 mb-1">🔧 {svc.problem || svc.complaint || 'Tidak ada keluhan'}</p>
+                                                            <p className="text-xs text-slate-500">📱 IMEI: {svc.deviceSN || svc.imei || '-'}</p>
                                                             <p className="text-xs text-slate-500">📅 {formatDate(svc.createdAt)}</p>
                                                         </div>
                                                         <div className="text-right">
@@ -17870,7 +18177,7 @@ ${tableHtml}
                            amount: sisa,
                            paid: 0,
                            remaining: sisa,
-                           description: `Service ${service.unitType || 'HP'} - ${service.complaint || ''}`,
+                           description: `Service ${service.deviceModel || service.unitType || 'HP'} - ${service.problem || service.complaint || ''}`,
                            items: serviceItems,
                            dueDate: creditDueDate ? new Date(Date.now()+Number(creditDueDate)*86400000).toISOString().split('T')[0] : '',
                            status: 'unpaid',
@@ -17911,7 +18218,7 @@ ${tableHtml}
                    
                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-xl mb-4 border border-blue-100">
                       <p className="text-sm text-slate-600 mb-1">Pelanggan: <span className="font-bold text-slate-800">{service.customerName}</span></p>
-                      <p className="text-sm text-slate-600 mb-1">Unit: <span className="font-bold text-slate-800">{service.unitType}</span></p>
+                      <p className="text-sm text-slate-600 mb-1">Unit: <span className="font-bold text-slate-800">{service.deviceModel || service.unitType || '-'}</span></p>
                       <div className="flex justify-between items-center mt-3 pt-3 border-t border-blue-200">
                           <span className="text-sm text-slate-600">Sisa Tagihan:</span>
                           <span className="font-bold text-2xl text-red-600">{formatCurrency(sisa)}</span>
@@ -19620,7 +19927,7 @@ async function doCetakBluetooth() {
         };
         
         const Sidebar = ({ setView, view, isOpen, close }) => {
-            const { user, activeOwner, activeStore, availableStores, switchStore, logout, checkPermission } = useContext(SessionContext);
+            const { user, activeOwner, activeStore, availableStores, switchStore, logout, checkPermission, ownerAccess } = useContext(SessionContext);
             const [storeMenuOpen, setStoreMenuOpen] = useState(false);
             const [expandedGroups, setExpandedGroups] = useState({ operations: true, finance: false, inventory: false });
             const [showInstallButton, setShowInstallButton] = useState(false);
@@ -19898,9 +20205,31 @@ async function doCetakBluetooth() {
                                     )}
                                     <div className={`space-y-1 ${group.expandable && !expandedGroups[group.id] ? 'hidden' : ''}`}>
                                         {group.items.map(m => {
-                                            // Jika trial AI aktif, menu ai-assistant tidak terkunci meski permission belum di-set
-                                            const hasActiveTrial = m.id === 'ai-assistant' && !!(activeOwner?.accessRights?.aiTrialEnabled);
-                                            const isLocked = m.permission && !checkPermission(m.permission) && !hasActiveTrial;
+                                            // Jika trial AI aktif DAN belum expired, menu ai-assistant tidak terkunci
+                                            const hasActiveTrial = (() => {
+                                                if (m.id !== 'ai-assistant') return false;
+                                                const tr = activeOwner?.accessRights;
+                                                if (!tr?.aiTrialEnabled) return false;
+                                                if (tr.aiTrialEndDate) {
+                                                    const end = new Date(tr.aiTrialEndDate); end.setHours(23,59,59,999);
+                                                    return end > new Date();
+                                                }
+                                                const startKey = 'ai_trial_start_' + activeOwner?.id;
+                                                const start = localStorage.getItem(startKey) || tr.aiTrialStartedAt;
+                                                if (!start) return false;
+                                                const days = Math.max(1, parseInt(tr.aiTrialDays)||7);
+                                                return new Date(new Date(start).getTime() + days*86400000) > new Date();
+                                            })();
+                                            // Untuk ai-assistant: kunci jika tidak punya akses permanen DAN trial tidak aktif
+                                            const isLocked = (() => {
+                                                if (!m.permission) return false;
+                                                if (user?.role === 'developer') return false;
+                                                if (m.id === 'ai-assistant') {
+                                                    const permanentAccess = ownerAccess?.menu_ai_assistant === true;
+                                                    return !permanentAccess && !hasActiveTrial;
+                                                }
+                                                return !checkPermission(m.permission);
+                                            })();
                                             return (
                                                 <button 
                                                     key={m.id} 
@@ -19966,8 +20295,132 @@ async function doCetakBluetooth() {
              const [restoring, setRestoring] = useState(false);
              const [isBranchModalOpen, setBranchModalOpen] = useState(false);
              const [modal, setModal] = useState(null);
-             const [openSect, setOpenSect] = useState(() => new Set(['profil-toko', 'gps-absensi', 'master-data']));
+             const [openSect, setOpenSect] = useState(() => new Set(['profil-toko', 'gps-absensi', 'master-data', 'backup']));
              const toggleSect = (id) => setOpenSect(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+             // ── Google Drive Backup State ──────────────────────────
+             const _gdOwnerId   = activeOwner?.id;
+             const _gdOwnerName = activeOwner?.name || _gdOwnerId;
+             const _loadCfg = () => { try { return JSON.parse(localStorage.getItem('gdrive_cfg_' + _gdOwnerId)) || {}; } catch { return {}; } };
+             const _saveCfg = (patch) => { const c = _loadCfg(); localStorage.setItem('gdrive_cfg_' + _gdOwnerId, JSON.stringify({...c, ...patch})); };
+             const [gdCfg, setGdCfg] = useState(_loadCfg);
+             const [gdClientId, setGdClientId] = useState(() => (_loadCfg().clientId || ''));
+             const [gdStatus, setGdStatus] = useState('idle');
+             const [gdMsg, setGdMsg]     = useState('');
+             const gdRefresh = () => setGdCfg(_loadCfg());
+             const gdIsBusy  = gdStatus === 'connecting' || gdStatus === 'backing-up';
+             const gdLastStr = gdCfg.lastBackup
+                 ? new Date(gdCfg.lastBackup).toLocaleString('id-ID', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+                 : null;
+
+             const gdHandleConnect = async () => {
+                 if (!gdClientId.trim()) { alert('Masukkan Client ID terlebih dahulu.'); return; }
+                 setGdStatus('connecting'); setGdMsg('Menghubungkan ke Google...');
+                 try {
+                     await window._loadGIS();
+                     await new Promise((resolve, reject) => {
+                         const client = window.google.accounts.oauth2.initTokenClient({
+                             client_id: gdClientId.trim(),
+                             scope: 'https://www.googleapis.com/auth/drive.file',
+                             callback: (resp) => {
+                                 if (resp.error) { reject(new Error(resp.error_description || resp.error)); return; }
+                                 const payload = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in||3600)*1000 - 60000 };
+                                 sessionStorage.setItem('gdrive_token_' + _gdOwnerId, JSON.stringify(payload));
+                                 _saveCfg({ clientId: gdClientId.trim(), connected: true });
+                                 resolve();
+                             }
+                         });
+                         client.requestAccessToken({ prompt: 'consent' });
+                     });
+                     gdRefresh(); setGdStatus('idle'); setGdMsg('');
+                 } catch (e) { setGdStatus('error'); setGdMsg('Gagal: ' + e.message); }
+             };
+
+             const gdHandleDisconnect = () => {
+                 if (!confirm('Putuskan koneksi Google Drive?\nBackup otomatis akan dihentikan.')) return;
+                 sessionStorage.removeItem('gdrive_token_' + _gdOwnerId);
+                 _saveCfg({ connected: false, autoBackup: false });
+                 gdRefresh(); setGdStatus('idle'); setGdMsg('');
+             };
+
+             const gdGetToken = async () => {
+                 try {
+                     const t = JSON.parse(sessionStorage.getItem('gdrive_token_' + _gdOwnerId));
+                     if (t && t.access_token && (!t.expires_at || Date.now() < t.expires_at)) return t.access_token;
+                 } catch {}
+                 // Token expired — minta baru
+                 const cfg = _loadCfg();
+                 if (!cfg.clientId) throw new Error('Belum terhubung ke Google Drive.');
+                 return new Promise((resolve, reject) => {
+                     window._loadGIS().then(() => {
+                         const client = window.google.accounts.oauth2.initTokenClient({
+                             client_id: cfg.clientId,
+                             scope: 'https://www.googleapis.com/auth/drive.file',
+                             callback: (resp) => {
+                                 if (resp.error) { reject(new Error(resp.error_description || resp.error)); return; }
+                                 const payload = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in||3600)*1000 - 60000 };
+                                 sessionStorage.setItem('gdrive_token_' + _gdOwnerId, JSON.stringify(payload));
+                                 resolve(resp.access_token);
+                             }
+                         });
+                         client.requestAccessToken({ prompt: '' });
+                     }).catch(reject);
+                 });
+             };
+
+             const gdHandleBackupNow = async () => {
+                 setGdStatus('backing-up'); setGdMsg('Mengambil data dari database...');
+                 try {
+                     const token = await gdGetToken();
+                     setGdMsg('Mengirim ke Google Drive...');
+                     // Kumpulkan data
+                     const cols = ['services','inventory','transactions','customers','sales','employees','suppliers'];
+                     const backup = { version: '2.0', ownerId: _gdOwnerId, createdAt: new Date().toISOString() };
+                     for (const col of cols) {
+                         try {
+                             const snap = await getDocs(query(collection(db, APP_COLLECTION_PREFIX, 'public', col), where('ownerId', '==', _gdOwnerId)));
+                             backup[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                         } catch { backup[col] = []; }
+                     }
+                     // Cari/buat folder Drive
+                     const driveGet = async (url) => { const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } }); return r.json(); };
+                     const drivePost = async (url, body, isMulti = false) => {
+                         const r = await fetch(url, { method:'POST', headers: isMulti ? { Authorization: 'Bearer ' + token } : { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body });
+                         if (!r.ok) throw new Error('Drive API ' + r.status);
+                         return r.json();
+                     };
+                     const getOrCreate = async (name, parentId) => {
+                         let q = `mimeType='application/vnd.google-apps.folder' and name='${name}' and trashed=false`;
+                         if (parentId) q += ` and '${parentId}' in parents`;
+                         const s = await driveGet('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id)&spaces=drive');
+                         if (s.files && s.files.length > 0) return s.files[0].id;
+                         const meta = { name, mimeType: 'application/vnd.google-apps.folder', ...(parentId ? { parents: [parentId] } : {}) };
+                         const c = await drivePost('https://www.googleapis.com/drive/v3/files', JSON.stringify(meta));
+                         return c.id;
+                     };
+                     const rootId  = await getOrCreate('iFix Pro Backup');
+                     const childId = await getOrCreate(_gdOwnerName || _gdOwnerId, rootId);
+                     // Upload file
+                     const d = new Date();
+                     const fname = `backup_${(_gdOwnerName||'toko').replace(/\s/g,'_')}_${d.toISOString().slice(0,10)}_${d.toTimeString().slice(0,8).replace(/:/g,'-')}.json`;
+                     const content = JSON.stringify(backup, null, 2);
+                     const boundary = 'IFX' + Math.random().toString(36).slice(2);
+                     const meta2 = JSON.stringify({ name: fname, mimeType: 'application/json', parents: [childId] });
+                     const body = `\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta2}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+                     const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name', {
+                         method: 'POST',
+                         headers: { Authorization: 'Bearer ' + token, 'Content-Type': `multipart/related; boundary="${boundary}"` },
+                         body
+                     });
+                     if (!res.ok) throw new Error('Upload Drive gagal: ' + res.status);
+                     _saveCfg({ lastBackup: new Date().toISOString(), lastFile: fname });
+                     gdRefresh(); setGdStatus('done'); setGdMsg('✅ Tersimpan: ' + fname);
+                     setTimeout(() => { setGdStatus('idle'); setGdMsg(''); }, 5000);
+                 } catch (e) {
+                     setGdStatus('error'); setGdMsg('❌ Gagal: ' + e.message);
+                     setTimeout(() => { setGdStatus('idle'); setGdMsg(''); }, 6000);
+                 }
+             };
 
              // Hanya reset form profil toko ketika berpindah ke toko berbeda (bukan saat data diperbarui)
              useEffect(() => { 
@@ -20015,7 +20468,6 @@ async function doCetakBluetooth() {
                     reader.readAsDataURL(file);
                 });
              };
-
              const handleLogo = async (e) => { 
                  const file = e.target.files[0]; 
                  if(file) { 
@@ -20699,6 +21151,92 @@ async function doCetakBluetooth() {
                                      <p className="text-xs text-slate-500 mt-1 mb-3">Upload file .json untuk restore data.</p>
                                      <label className={`mt-auto w-full py-2 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 cursor-pointer flex items-center justify-center gap-1 ${restoring ? 'opacity-50 cursor-wait' : ''}`}>{restoring ? <Loader2 className="w-4 h-4 animate-spin"/> : <Upload className="w-4 h-4"/>} {restoring ? 'Restore...' : 'Pilih JSON'}<input type="file" accept=".json" onChange={handleRestore} disabled={restoring} className="hidden"/></label>
                                  </div>
+                             </div>
+                             {/* ── Google Drive Backup ─────────────────────── */}
+                             <div className="mt-4 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl border border-indigo-200 p-4 space-y-3">
+                                 <div className="flex items-center justify-between">
+                                     <div className="flex items-center gap-2">
+                                         <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center shadow-sm border border-indigo-100 flex-shrink-0">
+                                             <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                 <path d="M2 12L6.5 20H17.5" stroke="#4285F4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                                 <path d="M7.5 4L2 12" stroke="#34A853" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                                 <path d="M7.5 4H16.5L22 12L17.5 20" stroke="#EA4335" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                                 <line x1="2" y1="12" x2="22" y2="12" stroke="#FBBC04" strokeWidth="1.8" strokeLinecap="round"/>
+                                             </svg>
+                                         </div>
+                                         <div>
+                                             <p className="font-bold text-slate-800 text-sm">Google Drive Backup</p>
+                                             <p className="text-[11px] text-slate-500">Sinkron otomatis ke Drive Anda</p>
+                                         </div>
+                                     </div>
+                                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full border flex-shrink-0 ${gdCfg.connected ? 'bg-green-100 text-green-700 border-green-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                         {gdCfg.connected ? '● Terhubung' : '○ Belum Terhubung'}
+                                     </span>
+                                 </div>
+
+                                 {!gdCfg.connected && (
+                                     <div className="space-y-2">
+                                         <div className="bg-white border border-blue-200 rounded-lg p-3">
+                                             <p className="text-xs font-bold text-blue-800 mb-1">📋 Cara setup:</p>
+                                             <ol className="text-[11px] text-blue-700 space-y-0.5 list-decimal list-inside">
+                                                 <li>Buka <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="underline font-semibold">Google Cloud Console</a> → aktifkan <strong>Google Drive API</strong></li>
+                                                 <li>Credentials → Create → <strong>OAuth 2.0 Client ID</strong> (Web Application)</li>
+                                                 <li>Authorized JS Origins: <code className="bg-blue-50 px-1 rounded text-[10px]">{window.location.origin}</code></li>
+                                                 <li>Copy Client ID lalu paste di bawah</li>
+                                             </ol>
+                                         </div>
+                                         <input type="text" placeholder="xxxxxxxx.apps.googleusercontent.com" value={gdClientId} onChange={e => setGdClientId(e.target.value)} className="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"/>
+                                         <button onClick={gdHandleConnect} disabled={gdIsBusy} className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50">
+                                             {gdIsBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : null}
+                                             {gdIsBusy ? 'Menghubungkan...' : 'Masuk dengan Google'}
+                                         </button>
+                                     </div>
+                                 )}
+
+                                 {gdCfg.connected && (
+                                     <div className="space-y-2">
+                                         <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-slate-200">
+                                             <span className="text-[11px] text-slate-500">Backup terakhir</span>
+                                             <span className="text-[11px] font-bold text-slate-700">{gdLastStr || <span className="text-slate-400 font-normal">Belum pernah</span>}</span>
+                                         </div>
+                                         <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2.5 border border-slate-200">
+                                             <div>
+                                                 <p className="text-xs font-bold text-slate-800">Backup Otomatis</p>
+                                                 <p className="text-[10px] text-slate-500">Jalankan saat buka app sesuai jadwal</p>
+                                             </div>
+                                             <label className="relative inline-flex items-center cursor-pointer ml-2 flex-shrink-0">
+                                                 <input type="checkbox" className="sr-only peer" checked={!!gdCfg.autoBackup} onChange={e => { _saveCfg({ autoBackup: e.target.checked }); gdRefresh(); }}/>
+                                                 <div className="w-10 h-5 bg-slate-300 peer-checked:bg-indigo-500 rounded-full transition-all after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                                             </label>
+                                         </div>
+                                         {gdCfg.autoBackup && (
+                                             <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-slate-200">
+                                                 <span className="text-xs font-bold text-slate-700">Jadwal</span>
+                                                 <select value={gdCfg.schedule || 'daily'} onChange={e => { _saveCfg({ schedule: e.target.value }); gdRefresh(); }} className="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-700 bg-white focus:outline-none">
+                                                     <option value="daily">Harian</option>
+                                                     <option value="weekly">Mingguan</option>
+                                                 </select>
+                                             </div>
+                                         )}
+                                         {gdMsg && (
+                                             <div className={`text-[11px] px-3 py-2 rounded-lg font-medium ${gdStatus === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : gdStatus === 'done' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'}`}>
+                                                 {gdStatus === 'backing-up' && <Loader2 className="w-3 h-3 animate-spin inline-block mr-1"/>}
+                                                 {gdMsg}
+                                             </div>
+                                         )}
+                                         <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                                             <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-slate-400 flex-shrink-0" xmlns="http://www.w3.org/2000/svg"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
+                                             Folder: <strong className="text-slate-500 ml-1">iFix Pro Backup / {_gdOwnerName}</strong>
+                                         </div>
+                                         <div className="flex gap-2">
+                                             <button onClick={gdHandleBackupNow} disabled={gdIsBusy} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center justify-center gap-1.5 disabled:opacity-50">
+                                                 {gdIsBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-white" xmlns="http://www.w3.org/2000/svg"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>}
+                                                 {gdIsBusy ? 'Proses...' : 'Backup Sekarang'}
+                                             </button>
+                                             <button onClick={gdHandleDisconnect} className="px-3 py-2 border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50">Putuskan</button>
+                                         </div>
+                                     </div>
+                                 )}
                              </div>
                          </div>
                          )}
@@ -26386,18 +26924,18 @@ ${debt.paid > 0 ? `⚠️ Sudah ada pembayaran ${formatCurrency(debt.paid)} yang
                                     </div>
                                     <div>
                                         <p className="text-xs text-slate-500 mb-1">No. HP</p>
-                                        <p className="font-bold text-slate-800">{service.phone}</p>
+                                        <p className="font-bold text-slate-800">{service.customerPhone || service.phone || '-'}</p>
                                     </div>
                                 </div>
 
                                 <div>
                                     <p className="text-xs text-slate-500 mb-1">Perangkat</p>
-                                    <p className="font-bold text-slate-800">{service.unitType || service.deviceType}</p>
+                                    <p className="font-bold text-slate-800">{service.deviceModel || service.unitType || service.deviceType || '-'}</p>
                                 </div>
 
                                 <div>
                                     <p className="text-xs text-slate-500 mb-1">Keluhan</p>
-                                    <p className="text-slate-700 bg-slate-50 p-3 rounded-lg">{service.complaint || service.problem}</p>
+                                    <p className="text-slate-700 bg-slate-50 p-3 rounded-lg">{service.problem || service.complaint || (Array.isArray(service.complaintTags) ? service.complaintTags.join(', ') : '') || '-'}</p>
                                 </div>
 
                                 <div className="border-t pt-4">
@@ -29014,6 +29552,19 @@ Cara merespons:
                 if (!user) prevUidRef.current = null;
             }, [user?.uid]);
 
+            // ⏰ Auto-backup ke Google Drive (silent, background)
+            const autoBackupDoneRef = React.useRef(null); // stores last ownerId that was checked
+            useEffect(() => {
+                if (!activeOwner?.id) return;
+                if (autoBackupDoneRef.current === activeOwner.id) return; // sudah dicek untuk owner ini
+                autoBackupDoneRef.current = activeOwner.id;
+                // Tunda 10 detik setelah login agar app selesai load
+                const timer = setTimeout(() => {
+                    gdriveCheckAutoBackup(activeOwner.id, activeOwner.name);
+                }, 10000);
+                return () => clearTimeout(timer);
+            }, [activeOwner?.id]);
+
             // Redirect ke dashboard jika view yang sedang dibuka dinonaktifkan oleh developer
             useEffect(() => {
                 const viewPermMap = {
@@ -29307,35 +29858,25 @@ Cara merespons:
                             {(() => {
                                 const tr = activeOwner?.accessRights;
                                 if (!tr?.aiTrialEnabled) return null;
-                                // Hitung sisa hari
+                                // Hitung sisa hari — gunakan aiTrialStartedAt dari accessRights sebagai sumber utama
                                 let remaining = 0, expired = false;
                                 if (tr.aiTrialEndDate) {
                                     const end = new Date(tr.aiTrialEndDate); end.setHours(23,59,59,999);
                                     remaining = Math.ceil((end - new Date()) / 86400000);
                                     expired = remaining <= 0;
                                 } else {
-                                    const startKey = 'ai_trial_start_' + activeOwner.id;
-                                    const start = localStorage.getItem(startKey);
+                                    const start = tr.aiTrialStartedAt || localStorage.getItem('ai_trial_start_' + activeOwner.id);
                                     if (start) {
                                         const days = Math.max(1, parseInt(tr.aiTrialDays)||7);
                                         remaining = Math.ceil((new Date(start).getTime() + days*86400000 - Date.now()) / 86400000);
                                         expired = remaining <= 0;
                                     } else {
-                                        remaining = parseInt(tr.aiTrialDays)||7;
+                                        // Belum pernah dimulai → tidak perlu tampilkan notif
+                                        return null;
                                     }
                                 }
-                                const adminWa = adminWhatsApp || subConfig?.whatsapp || '';
-                                const waLink = adminWa ? `https://wa.me/${adminWa.replace(/\D/g,'')}?text=${encodeURIComponent('Halo Admin, saya ingin memperpanjang masa trial AI Assistant. Terima kasih.')}` : null;
-                                if (expired) return (
-                                    <div className="mb-4 flex items-center gap-3 bg-rose-50 border border-rose-300 rounded-xl px-4 py-3 text-sm">
-                                        <span className="text-2xl">😔</span>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="font-bold text-rose-700">Masa Trial AI Assistant Telah Berakhir</p>
-                                            <p className="text-rose-600 text-xs mt-0.5">Hubungi admin untuk memperpanjang atau aktifkan paket AI.</p>
-                                        </div>
-                                        {waLink && <a href={waLink} target="_blank" rel="noreferrer" className="flex-shrink-0 bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors">💬 Hubungi Admin</a>}
-                                    </div>
-                                );
+                                // Jika expired → sembunyikan notif (fitur sudah terkunci di sidebar)
+                                if (expired) return null;
                                 const urgent = remaining <= 3;
                                 return (
                                     <div className={`mb-4 flex items-center gap-3 rounded-xl px-4 py-3 text-sm border ${urgent ? 'bg-amber-50 border-amber-400 animate-pulse' : 'bg-violet-50 border-violet-300'}`}>
@@ -29348,7 +29889,6 @@ Cara merespons:
                                                 {urgent ? 'Trial hampir habis! ' : ''}Untuk memperpanjang, hubungi admin.
                                             </p>
                                         </div>
-                                        {waLink && <a href={waLink} target="_blank" rel="noreferrer" className="flex-shrink-0 bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors">💬 Hubungi Admin</a>}
                                     </div>
                                 );
                             })()}
@@ -29371,7 +29911,34 @@ Cara merespons:
                             {view === 'inventory' && <StockManager />}
                             {view === 'finance' && <FinanceManager />}
                             {view === 'backup' && <BackupPage />}
-                            {view === 'ai-assistant' && <AIAssistant />}
+                            {view === 'ai-assistant' && (() => {
+                                // Guard: cek apakah AI assistant boleh diakses
+                                const tr = activeOwner?.accessRights;
+                                const permanentAccess = tr?.menu_ai_assistant === true;
+                                if (permanentAccess) return <AIAssistant />;
+                                // Cek trial aktif
+                                if (tr?.aiTrialEnabled) {
+                                    let isActive = false;
+                                    if (tr.aiTrialEndDate) {
+                                        const end = new Date(tr.aiTrialEndDate); end.setHours(23,59,59,999);
+                                        isActive = end > new Date();
+                                    } else {
+                                        const start = tr.aiTrialStartedAt || localStorage.getItem('ai_trial_start_' + activeOwner?.id);
+                                        if (start) {
+                                            const days = Math.max(1, parseInt(tr.aiTrialDays)||7);
+                                            isActive = new Date(new Date(start).getTime() + days*86400000) > new Date();
+                                        }
+                                    }
+                                    if (isActive) return <AIAssistant />;
+                                }
+                                // Terkunci → redirect ke dashboard
+                                return <div className="flex flex-col items-center justify-center py-20 text-center">
+                                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4"><Lock className="w-10 h-10 text-slate-400"/></div>
+                                    <h3 className="text-xl font-bold text-slate-700 mb-2">Fitur AI Assistant Terkunci</h3>
+                                    <p className="text-sm text-slate-500 mb-4">Masa trial telah berakhir. Hubungi admin untuk mengaktifkan kembali.</p>
+                                    <button onClick={() => setView('dashboard')} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-blue-700">Kembali ke Dashboard</button>
+                                </div>;
+                            })()}
                         </div>
                         {/* Bottom Navigation Mobile */}
                         <div className="bottom-nav">
@@ -30065,6 +30632,17 @@ Cara merespons:
             const root = createRoot(document.getElementById('root'));
             root.render(<Root />);
             console.log('✅ React app rendered successfully');
+
+            // Sembunyikan splash screen setelah React selesai render pertama
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    const splash = document.getElementById('initial-splash');
+                    if (splash) {
+                        splash.style.opacity = '0';
+                        setTimeout(() => splash.remove(), 500);
+                    }
+                });
+            });
             
             // ==========================================
             // 🔒 VERSION COMPATIBILITY CHECK
