@@ -1,0 +1,4 @@
+server/ifix_backup_config.json
+
+# rclone config (berisi credentials)
+*.rclone.conf
