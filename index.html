@@ -12,8 +12,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="iFix Pro">
     
-    <!-- Inline PWA Manifest -->
-    <link id="manifest-placeholder" rel="manifest">
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
     
     <link rel="icon" type="image/png" href="/logo-ifix.png">
     <link rel="apple-touch-icon" href="/logo-ifix.png">
@@ -27,38 +27,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="dns-prefetch" href="https://amproject.my.id">
     
-    <script>
-        // Generate inline manifest
-        const manifestData = {
-            id: "/",
-            name: "iFix Pro - Phone Repair POS",
-            short_name: "iFix Pro",
-            description: "Sistem POS untuk servis HP dengan fitur multi-branch, inventory, HR & Payroll",
-            start_url: "/index.html",
-            scope: "/",
-            display: "standalone",
-            display_override: ["standalone", "minimal-ui"],
-            background_color: "#0f172a",
-            theme_color: "#2563eb",
-            prefer_related_applications: false,
-            related_applications: [],
-            categories: ["business", "productivity"],
-            icons: [{
-                src: "/logo-ifix.png",
-                sizes: "192x192",
-                type: "image/png",
-                purpose: "any maskable"
-            }, {
-                src: "/logo-ifix.png",
-                sizes: "512x512",
-                type: "image/png",
-                purpose: "any"
-            }]
-        };
-        const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/json' });
-        const manifestURL = URL.createObjectURL(manifestBlob);
-        document.getElementById('manifest-placeholder').setAttribute('href', manifestURL);
-    </script>
+    <!-- manifest.json sudah dipisah ke file /manifest.json -->
     <!-- 
     � POCKETBASE BACKEND AKTIF 🔌
     ========================================
@@ -20312,6 +20281,7 @@ async function doCetakBluetooth() {
              const [gettingGPS, setGettingGPS] = useState(false);
              const [restoring, setRestoring] = useState(false);
              const [isBranchModalOpen, setBranchModalOpen] = useState(false);
+             const [deleteBranchConfirm, setDeleteBranchConfirm] = useState(null);
              const [modal, setModal] = useState(null);
              const [openSect, setOpenSect] = useState(() => new Set(['profil-toko', 'gps-absensi', 'master-data', 'backup']));
              const toggleSect = (id) => setOpenSect(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -20562,6 +20532,45 @@ async function doCetakBluetooth() {
                      },
                      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
                  );
+             };
+
+             const handleDeleteBranch = async () => {
+                 const branch = deleteBranchConfirm;
+                 if (!branch) return;
+                 // Toko pusat tidak bisa dihapus
+                 const hasPusatField = availableStores.some(s => s.isPusat);
+                 const isPusat = hasPusatField
+                     ? !!branch.isPusat
+                     : [...availableStores].sort((a, b) => (a.createdAt?.seconds||0) - (b.createdAt?.seconds||0))[0]?.id === branch.id;
+                 if (isPusat) { alert('❌ Toko Pusat tidak dapat dihapus.'); return; }
+                 setSaving(true);
+                 try {
+                     await deleteDoc(doc(db, APP_COLLECTION_PREFIX, 'public', 'stores', branch.id));
+                     setDeleteBranchConfirm(null);
+                     alert(`✅ Cabang "${branch.name}" berhasil dihapus.`);
+                     if (activeStore?.id === branch.id) {
+                         const main = availableStores.find(s => s.isPusat) ||
+                             availableStores.find(s => s.id !== branch.id);
+                         if (main) switchStore(main.id);
+                     }
+                 } catch(err) {
+                     alert('❌ Gagal hapus cabang: ' + err.message);
+                 } finally { setSaving(false); }
+             };
+
+             const handleSetMainStore = async (store) => {
+                 if (!confirm(`Jadikan "${store.name}" sebagai Toko Pusat?\n\nToko pusat tidak dapat dihapus.`)) return;
+                 setSaving(true);
+                 try {
+                     const batch = writeBatch(db);
+                     availableStores.forEach(s => {
+                         batch.update(doc(db, APP_COLLECTION_PREFIX, 'public', 'stores', s.id), { isPusat: s.id === store.id });
+                     });
+                     await batch.commit();
+                     alert(`✅ "${store.name}" sekarang menjadi Toko Pusat.`);
+                 } catch(err) {
+                     alert('❌ Gagal: ' + err.message);
+                 } finally { setSaving(false); }
              };
 
              const handleCreateBranch = async (e) => {
@@ -20867,6 +20876,59 @@ async function doCetakBluetooth() {
                                  <Plus className="w-3.5 h-3.5"/> Cabang Baru
                              </button>
                          </div>
+
+                         {/* Daftar Cabang */}
+                         {availableStores.length > 0 && (
+                             <div className="mb-4 space-y-2">
+                                 {(() => {
+                                     // Tentukan toko pusat: pakai field isPusat, fallback ke tertua
+                                     const hasPusatField = availableStores.some(s => s.isPusat);
+                                     const sorted = [...availableStores].sort((a, b) => (a.createdAt?.seconds||0) - (b.createdAt?.seconds||0));
+                                     return sorted.map((s) => {
+                                         const isPusat = hasPusatField ? !!s.isPusat : sorted[0]?.id === s.id;
+                                         const isActive = s.id === activeStore?.id;
+                                         return (
+                                             <div key={s.id} className={`flex items-center justify-between gap-2 px-4 py-3 rounded-xl border ${isPusat ? 'bg-amber-50 border-amber-300' : isActive ? 'bg-blue-50 border-blue-300' : 'bg-slate-50 border-slate-200'}`}>
+                                                 <div className="flex items-center gap-3 min-w-0">
+                                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm ${isPusat ? 'bg-amber-500 text-white' : isActive ? 'bg-blue-600 text-white' : 'bg-slate-300 text-slate-600'}`}>
+                                                         {s.name?.charAt(0)?.toUpperCase()}
+                                                     </div>
+                                                     <div className="min-w-0">
+                                                         <p className="font-bold text-sm text-slate-800 truncate flex flex-wrap items-center gap-1">
+                                                             {s.name}
+                                                             {isPusat && <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-300 px-1.5 py-0.5 rounded-full font-bold">🏠 PUSAT</span>}
+                                                             {isActive && <span className="text-[10px] bg-blue-100 text-blue-700 border border-blue-300 px-1.5 py-0.5 rounded-full font-bold">AKTIF</span>}
+                                                         </p>
+                                                         {s.address && <p className="text-xs text-slate-400 truncate">{s.address}</p>}
+                                                     </div>
+                                                 </div>
+                                                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                                                     {!isPusat && (
+                                                         <button
+                                                             onClick={() => handleSetMainStore(s)}
+                                                             disabled={saving}
+                                                             className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1 disabled:opacity-50"
+                                                             title="Jadikan toko pusat"
+                                                         >
+                                                             🏠 Jadikan Pusat
+                                                         </button>
+                                                     )}
+                                                     {!isPusat && (
+                                                         <button
+                                                             onClick={() => setDeleteBranchConfirm(s)}
+                                                             className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 p-2 rounded-lg transition-colors"
+                                                             title="Hapus cabang"
+                                                         >
+                                                             <Trash2 className="w-4 h-4"/>
+                                                         </button>
+                                                     )}
+                                                 </div>
+                                             </div>
+                                         );
+                                     });
+                                 })()}
+                             </div>
+                         )}
                          
                          <form onSubmit={saveProfile} className="space-y-6"><div className="flex items-center gap-6">
                             
@@ -20880,6 +20942,38 @@ async function doCetakBluetooth() {
                             <div><h4 className="font-bold text-slate-700">Logo Struk</h4><p className="text-xs text-slate-500 mb-2">Format: JPG/PNG, Max 5MB</p></div></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nama Toko</label><input className="w-full border border-slate-300 p-3 rounded-lg font-bold text-slate-800" value={storeData.name||''} onChange={e=>setStoreData({...storeData, name:e.target.value})}/></div><div><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">No Telepon</label><input className="w-full border border-slate-300 p-3 rounded-lg" value={storeData.phone||''} onChange={e=>setStoreData({...storeData, phone:e.target.value})}/></div><div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Alamat</label><input className="w-full border border-slate-300 p-3 rounded-lg" value={storeData.address||''} onChange={e=>setStoreData({...storeData, address:e.target.value})}/></div></div><div className="flex justify-end"><button disabled={saving} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-600/30 transition-all">{saving?'Saving...':'Simpan Perubahan'}</button></div></form>
                      </div>)}
                      </div>
+                     {/* Modal Konfirmasi Hapus Cabang */}
+                     {deleteBranchConfirm && (
+                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+                             <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl">
+                                 <div className="flex flex-col items-center text-center">
+                                     <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                                         <Trash2 className="w-8 h-8 text-red-500"/>
+                                     </div>
+                                     <h3 className="font-bold text-lg text-slate-800 mb-2">Hapus Cabang?</h3>
+                                     <p className="text-slate-600 text-sm mb-1">Anda akan menghapus cabang:</p>
+                                     <p className="font-bold text-red-600 text-base mb-1">{deleteBranchConfirm.name}</p>
+                                     {deleteBranchConfirm.address && <p className="text-xs text-slate-400 mb-3">{deleteBranchConfirm.address}</p>}
+                                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-5 w-full text-left">
+                                         <p className="text-xs text-amber-700 font-bold mb-1">⚠️ Perhatian:</p>
+                                         <ul className="text-xs text-amber-600 space-y-1">
+                                             <li>• Data transaksi di cabang ini tidak ikut terhapus</li>
+                                             <li>• Pegawai yang terdaftar di cabang ini tetap ada</li>
+                                             <li>• Aksi ini tidak dapat dibatalkan</li>
+                                         </ul>
+                                     </div>
+                                     <div className="flex gap-3 w-full">
+                                         <button onClick={() => setDeleteBranchConfirm(null)} className="flex-1 py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50">Batal</button>
+                                         <button onClick={handleDeleteBranch} disabled={saving} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 flex items-center justify-center gap-2">
+                                             {saving && <Loader2 className="w-4 h-4 animate-spin"/>}
+                                             <Trash2 className="w-4 h-4"/> Hapus
+                                         </button>
+                                     </div>
+                                 </div>
+                             </div>
+                         </div>
+                     )}
+
                      {isBranchModalOpen && (
                          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
                              <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">

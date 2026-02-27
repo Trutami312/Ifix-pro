@@ -1,0 +1,31 @@
+{
+  "id": "/",
+  "name": "iFix Pro - Phone Repair POS",
+  "short_name": "iFix Pro",
+  "description": "Sistem POS untuk servis HP dengan fitur multi-branch, inventory, HR & Payroll",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/logo-ifix.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo-ifix.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": []
+}
